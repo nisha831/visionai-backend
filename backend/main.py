@@ -1,9 +1,12 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from backend.ai.yolo_detector import YOLODetector
 from backend.ai.ocr_reader import OCRReader
+from pydantic import BaseModel
+from typing import List
 import shutil
 import os
 import cv2
+
 
 app = FastAPI(
     title="VisionAI Backend",
@@ -14,10 +17,53 @@ UPLOAD_FOLDER = "uploads"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Load AI models once when the backend starts
+
+# -----------------------------
+# API Response Models
+# -----------------------------
+
+class BoundingBox(BaseModel):
+    x1: int
+    y1: int
+    x2: int
+    y2: int
+
+
+class DetectedObject(BaseModel):
+    name: str
+    confidence: float
+    box: BoundingBox
+
+
+class DetectedText(BaseModel):
+    text: str
+    confidence: float
+
+
+class ImageSize(BaseModel):
+    width: int
+    height: int
+
+
+class AnalyzeResponse(BaseModel):
+    message: str
+    filename: str
+    image_size: ImageSize
+    objects: List[DetectedObject]
+    text: List[DetectedText]
+
+
+# -----------------------------
+# Load AI models
+# -----------------------------
+
 detector = YOLODetector()
 ocr = OCRReader()
 
+
+# -----------------------------
+# Routes
+# -----------------------------
 
 @app.get("/")
 def home():
@@ -36,7 +82,7 @@ def health():
     }
 
 
-@app.post("/analyze")
+@app.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_image(file: UploadFile = File(...)):
 
     # Check that the uploaded file is an image
