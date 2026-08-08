@@ -2,11 +2,12 @@ from ultralytics import YOLO
 
 
 class YOLODetector:
+
     def __init__(self):
         self.model = YOLO("yolo11n.pt")
 
     def detect(self, image_path):
-        results = self.model(image_path)
+        results = self.model(image_path, conf=0.50)
 
         objects = []
 
