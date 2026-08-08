@@ -18,9 +18,18 @@ class YOLODetector:
 
                 object_name = result.names[class_id]
 
+                # Get bounding box coordinates
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+
                 objects.append({
                     "name": object_name,
-                    "confidence": round(confidence, 2)
+                    "confidence": round(confidence, 2),
+                    "box": {
+                        "x1": round(x1),
+                        "y1": round(y1),
+                        "x2": round(x2),
+                        "y2": round(y2)
+                    }
                 })
 
         return objects
