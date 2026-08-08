@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from backend.ai.yolo_detector import YOLODetector
 from backend.ai.ocr_reader import OCRReader
 import shutil
@@ -37,6 +37,20 @@ def health():
 @app.post("/analyze")
 async def analyze_image(file: UploadFile = File(...)):
 
+    # Check that the uploaded file is an image
+    allowed_types = {
+        "image/jpeg",
+        "image/png",
+        "image/jpg",
+        "image/webp"
+    }
+
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail="Only JPG, JPEG, PNG, and WEBP images are allowed."
+        )
+
     file_path = os.path.join(UPLOAD_FOLDER, file.filename)
 
     # Save uploaded image
@@ -47,9 +61,10 @@ async def analyze_image(file: UploadFile = File(...)):
     image = cv2.imread(file_path)
 
     if image is None:
-        return {
-            "error": "Could not read uploaded image"
-        }
+        raise HTTPException(
+            status_code=400,
+            detail="Could not read uploaded image."
+        )
 
     height, width = image.shape[:2]
 
