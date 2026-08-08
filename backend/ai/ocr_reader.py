@@ -3,6 +3,7 @@ import cv2
 
 
 class OCRReader:
+
     def __init__(self):
         self.reader = easyocr.Reader(["en"], gpu=False)
 
@@ -23,9 +24,10 @@ class OCRReader:
             text = result[1]
             confidence = float(result[2])
 
-            texts.append({
-                "text": text,
-                "confidence": round(confidence, 2)
-            })
+            if confidence >= 0.50:
+                texts.append({
+                    "text": text,
+                    "confidence": round(confidence, 2)
+                })
 
         return texts
