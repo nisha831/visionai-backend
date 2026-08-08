@@ -4,3 +4,6 @@ __pycache__/
 .env
 uploads/
 .vscode/
+
+images/test.jpg
+yolo11n.pt
