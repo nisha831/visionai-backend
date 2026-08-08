@@ -3,6 +3,7 @@ from backend.ai.yolo_detector import YOLODetector
 from backend.ai.ocr_reader import OCRReader
 import shutil
 import os
+import cv2
 
 app = FastAPI(
     title="VisionAI Backend",
@@ -42,6 +43,16 @@ async def analyze_image(file: UploadFile = File(...)):
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # Read image and get dimensions
+    image = cv2.imread(file_path)
+
+    if image is None:
+        return {
+            "error": "Could not read uploaded image"
+        }
+
+    height, width = image.shape[:2]
+
     # Run YOLO object detection
     objects = detector.detect(file_path)
 
@@ -51,6 +62,10 @@ async def analyze_image(file: UploadFile = File(...)):
     return {
         "message": "Image analyzed successfully!",
         "filename": file.filename,
+        "image_size": {
+            "width": width,
+            "height": height
+        },
         "objects": objects,
         "text": text
     }
