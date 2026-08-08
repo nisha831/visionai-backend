@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File
 from backend.ai.yolo_detector import YOLODetector
+from backend.ai.ocr_reader import OCRReader
 import shutil
 import os
 
@@ -12,8 +13,9 @@ UPLOAD_FOLDER = "uploads"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Load YOLO once when the backend starts
+# Load AI models once when the backend starts
 detector = YOLODetector()
+ocr = OCRReader()
 
 
 @app.get("/")
@@ -43,8 +45,12 @@ async def analyze_image(file: UploadFile = File(...)):
     # Run YOLO object detection
     objects = detector.detect(file_path)
 
+    # Run OCR text detection
+    text = ocr.read(file_path)
+
     return {
         "message": "Image analyzed successfully!",
         "filename": file.filename,
-        "objects": objects
+        "objects": objects,
+        "text": text
     }

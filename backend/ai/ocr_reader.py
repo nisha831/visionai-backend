@@ -1,4 +1,5 @@
 import easyocr
+import cv2
 
 
 class OCRReader:
@@ -6,7 +7,15 @@ class OCRReader:
         self.reader = easyocr.Reader(["en"], gpu=False)
 
     def read(self, image_path):
-        results = self.reader.readtext(image_path)
+        image = cv2.imread(image_path)
+
+        if image is None:
+            raise ValueError(f"Could not read image: {image_path}")
+
+        # Convert image to grayscale for OCR
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        results = self.reader.readtext(gray)
 
         texts = []
 
