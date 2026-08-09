@@ -1,10 +1,10 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from backend.ai.yolo_detector import YOLODetector
 from backend.ai.ocr_reader import OCRReader
-from pydantic import BaseModel
-from typing import List
+
 import shutil
 import os
+import uuid
 import cv2
 
 
@@ -13,57 +13,16 @@ app = FastAPI(
     version="1.0.0"
 )
 
+
 UPLOAD_FOLDER = "uploads"
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
-# -----------------------------
-# API Response Models
-# -----------------------------
-
-class BoundingBox(BaseModel):
-    x1: int
-    y1: int
-    x2: int
-    y2: int
-
-
-class DetectedObject(BaseModel):
-    name: str
-    confidence: float
-    box: BoundingBox
-
-
-class DetectedText(BaseModel):
-    text: str
-    confidence: float
-
-
-class ImageSize(BaseModel):
-    width: int
-    height: int
-
-
-class AnalyzeResponse(BaseModel):
-    message: str
-    filename: str
-    image_size: ImageSize
-    objects: List[DetectedObject]
-    text: List[DetectedText]
-
-
-# -----------------------------
-# Load AI models
-# -----------------------------
-
+# Load AI models once when the backend starts
 detector = YOLODetector()
 ocr = OCRReader()
 
-
-# -----------------------------
-# Routes
-# -----------------------------
 
 @app.get("/")
 def home():
@@ -82,10 +41,13 @@ def health():
     }
 
 
-@app.post("/analyze", response_model=AnalyzeResponse)
+@app.post("/analyze")
 async def analyze_image(file: UploadFile = File(...)):
 
-    # Check that the uploaded file is an image
+    # --------------------------------------------------
+    # 1. Validate uploaded file type
+    # --------------------------------------------------
+
     allowed_types = {
         "image/jpeg",
         "image/png",
@@ -99,36 +61,103 @@ async def analyze_image(file: UploadFile = File(...)):
             detail="Only JPG, JPEG, PNG, and WEBP images are allowed."
         )
 
-    file_path = os.path.join(UPLOAD_FOLDER, file.filename)
 
-    # Save uploaded image
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # --------------------------------------------------
+    # 2. Create a safe unique filename
+    # --------------------------------------------------
 
-    # Read image and get dimensions
-    image = cv2.imread(file_path)
+    extension = os.path.splitext(file.filename or "")[1].lower()
 
-    if image is None:
+    if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
         raise HTTPException(
             status_code=400,
-            detail="Could not read uploaded image."
+            detail="Invalid image extension."
         )
 
-    height, width = image.shape[:2]
+    unique_filename = f"{uuid.uuid4().hex}{extension}"
 
-    # Run YOLO object detection
-    objects = detector.detect(file_path)
+    file_path = os.path.join(
+        UPLOAD_FOLDER,
+        unique_filename
+    )
 
-    # Run OCR text detection
-    text = ocr.read(file_path)
 
-    return {
-        "message": "Image analyzed successfully!",
-        "filename": file.filename,
-        "image_size": {
-            "width": width,
-            "height": height
-        },
-        "objects": objects,
-        "text": text
-    }
+    try:
+
+        # --------------------------------------------------
+        # 3. Save uploaded image
+        # --------------------------------------------------
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+
+        # --------------------------------------------------
+        # 4. Read image
+        # --------------------------------------------------
+
+        image = cv2.imread(file_path)
+
+        if image is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Could not read uploaded image."
+            )
+
+
+        # --------------------------------------------------
+        # 5. Get image dimensions
+        # --------------------------------------------------
+
+        height, width = image.shape[:2]
+
+
+        # --------------------------------------------------
+        # 6. Run YOLO object detection
+        # --------------------------------------------------
+
+        objects = detector.detect(file_path)
+
+
+        # --------------------------------------------------
+        # 7. Run OCR text detection
+        # --------------------------------------------------
+
+        text = ocr.read(file_path)
+
+
+        # --------------------------------------------------
+        # 8. Return analysis result
+        # --------------------------------------------------
+
+        return {
+            "message": "Image analyzed successfully!",
+            "filename": file.filename,
+            "image_size": {
+                "width": width,
+                "height": height
+            },
+            "objects": objects,
+            "text": text
+        }
+
+
+    except HTTPException:
+        raise
+
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Image analysis failed: {str(e)}"
+        )
+
+
+    finally:
+
+        # --------------------------------------------------
+        # 9. Delete temporary uploaded image
+        # --------------------------------------------------
+
+        if os.path.exists(file_path):
+            os.remove(file_path)

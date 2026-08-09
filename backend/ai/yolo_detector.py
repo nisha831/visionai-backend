@@ -4,21 +4,30 @@ from ultralytics import YOLO
 class YOLODetector:
 
     def __init__(self):
-        self.model = YOLO("yolo11n.pt")
+        # Use the small YOLO11 model for better detection accuracy
+        self.model = YOLO("yolo11s.pt")
 
     def detect(self, image_path):
-        results = self.model(image_path, conf=0.50)
+
+        results = self.model(
+            image_path,
+            conf=0.25,
+            iou=0.45,
+            imgsz=640,
+            verbose=False
+        )
 
         objects = []
 
         for result in results:
+
             for box in result.boxes:
+
                 class_id = int(box.cls[0])
                 confidence = float(box.conf[0])
 
                 object_name = result.names[class_id]
 
-                # Get bounding box coordinates
                 x1, y1, x2, y2 = box.xyxy[0].tolist()
 
                 objects.append({
