@@ -7,3 +7,10 @@ uploads/
 images/test.jpg
 yolo11n.pt
 images/ocr_test.jpg
+
+# Temporary currency crop
+images/currency_crop.jpg
+
+# Training artifacts
+runs/
+training_data/

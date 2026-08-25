@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from backend.ai.yolo_detector import YOLODetector
 from backend.ai.ocr_reader import OCRReader
+from backend.ai.currency_detector import CurrencyDetector
 
 import shutil
 import os
@@ -22,6 +23,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Load AI models once when the backend starts
 detector = YOLODetector()
 ocr = OCRReader()
+currency_detector = CurrencyDetector()
 
 
 @app.get("/")
@@ -34,20 +36,19 @@ def home():
 
 @app.get("/health")
 def health():
+
     return {
         "status": "healthy",
         "yolo": "loaded",
-        "ocr": "loaded"
+        "ocr": "loaded",
+        "currency_detector": "loaded"
     }
 
 
 @app.post("/analyze")
 async def analyze_image(file: UploadFile = File(...)):
 
-    # --------------------------------------------------
-    # 1. Validate uploaded file type
-    # --------------------------------------------------
-
+    # Allowed image types
     allowed_types = {
         "image/jpeg",
         "image/png",
@@ -61,103 +62,58 @@ async def analyze_image(file: UploadFile = File(...)):
             detail="Only JPG, JPEG, PNG, and WEBP images are allowed."
         )
 
-
-    # --------------------------------------------------
-    # 2. Create a safe unique filename
-    # --------------------------------------------------
-
-    extension = os.path.splitext(file.filename or "")[1].lower()
-
-    if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid image extension."
-        )
-
-    unique_filename = f"{uuid.uuid4().hex}{extension}"
+    # Generate a unique filename
+    extension = os.path.splitext(file.filename)[1]
+    safe_filename = f"{uuid.uuid4()}{extension}"
 
     file_path = os.path.join(
         UPLOAD_FOLDER,
-        unique_filename
+        safe_filename
     )
 
+    # Save uploaded image
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-    try:
+    # Read image
+    image = cv2.imread(file_path)
 
-        # --------------------------------------------------
-        # 3. Save uploaded image
-        # --------------------------------------------------
-
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-
-
-        # --------------------------------------------------
-        # 4. Read image
-        # --------------------------------------------------
-
-        image = cv2.imread(file_path)
-
-        if image is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Could not read uploaded image."
-            )
-
-
-        # --------------------------------------------------
-        # 5. Get image dimensions
-        # --------------------------------------------------
-
-        height, width = image.shape[:2]
-
-
-        # --------------------------------------------------
-        # 6. Run YOLO object detection
-        # --------------------------------------------------
-
-        objects = detector.detect(file_path)
-
-
-        # --------------------------------------------------
-        # 7. Run OCR text detection
-        # --------------------------------------------------
-
-        text = ocr.read(file_path)
-
-
-        # --------------------------------------------------
-        # 8. Return analysis result
-        # --------------------------------------------------
-
-        return {
-            "message": "Image analyzed successfully!",
-            "filename": file.filename,
-            "image_size": {
-                "width": width,
-                "height": height
-            },
-            "objects": objects,
-            "text": text
-        }
-
-
-    except HTTPException:
-        raise
-
-
-    except Exception as e:
+    if image is None:
         raise HTTPException(
-            status_code=500,
-            detail=f"Image analysis failed: {str(e)}"
+            status_code=400,
+            detail="Could not read uploaded image."
         )
 
+    # Get image dimensions
+    height, width = image.shape[:2]
 
-    finally:
+    # -----------------------------
+    # YOLO object detection
+    # -----------------------------
+    objects = detector.detect(file_path)
 
-        # --------------------------------------------------
-        # 9. Delete temporary uploaded image
-        # --------------------------------------------------
+    # -----------------------------
+    # OCR text detection
+    # -----------------------------
+    text = ocr.read(file_path)
 
-        if os.path.exists(file_path):
-            os.remove(file_path)
+    # -----------------------------
+    # Currency detection
+    # -----------------------------
+    currencies = currency_detector.detect(text)
+
+    return {
+        "message": "Image analyzed successfully!",
+        "filename": file.filename,
+
+        "image_size": {
+            "width": width,
+            "height": height
+        },
+
+        "objects": objects,
+
+        "text": text,
+
+        "currencies": currencies
+    }
