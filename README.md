@@ -1,29 +1,32 @@
-# VisionAI Backend
+# VisionAI — AI-Powered Image Analysis Backend
 
-VisionAI is a FastAPI-based computer vision backend that analyzes uploaded images using YOLO object detection, Indian currency detection, and OCR.
+VisionAI is a FastAPI-based computer vision backend that analyzes uploaded images using **YOLO object detection, Indian currency detection, and OCR**.
+
+The project is designed to identify objects, extract text, and detect Indian currency denominations from images.
 
 ## Features
 
-- Object detection using YOLO
-- Indian currency note detection
-- OCR text extraction
-- Image upload and analysis API
-- Automatic image metadata extraction
-- Structured JSON API responses
-- Interactive Swagger API documentation
-- Secure upload handling
-- Modular AI components
+* ��� YOLO object detection
+* ��� Indian currency denomination detection
+* ��� OCR text extraction
+* ��� Combines OCR and YOLO results for currency identification
+* ⚡ FastAPI REST API
+* ��� JPG, JPEG, PNG, and WEBP image support
+* ��� Health-check endpoint
+* ��� Trained Indian currency YOLO model
 
-## Tech Stack
+## Supported Indian Currency
 
-- Python
-- FastAPI
-- Uvicorn
-- Ultralytics YOLO
-- PyTorch
-- EasyOCR
-- OpenCV
-- Pydantic
+The currency detection system supports:
+
+* ₹5
+* ₹10
+* ₹20
+* ₹50
+* ₹100
+* ₹200
+* ₹500
+* ₹2000
 
 ## Project Structure
 
@@ -32,288 +35,225 @@ VisionAI/
 │
 ├── backend/
 │   ├── ai/
-│   │   ├── __init__.py
 │   │   ├── currency_detector.py
 │   │   ├── currency_model.py
 │   │   ├── ocr_reader.py
-│   │   └── yolo_detector.py
+│   │   ├── yolo_detector.py
+│   │   └── __init__.py
 │   │
 │   ├── main.py
 │   └── test_yolo.py
 │
-├── docs/
-│   └── .gitkeep
-│
 ├── images/
-│   ├── Car.PNG
-│   ├── objects.PNG
-│   ├── person.PNG
-│   └── room.PNG
+│   ├── ocr_test.jpg
+│   └── test.jpg
 │
+├── docs/
 ├── notes/
-│   └── day1.md
-│
 ├── tests/
-│   └── .gitkeep
 │
-├── .gitignore
-├── README.md
-├── requirements.txt
 ├── indian_currency_pretrained.pt
-└── yolo11s.pt
+├── yolo11n.pt
+├── yolo11s.pt
+├── requirements.txt
+├── .gitignore
+└── README.md
+```
 
-AI Models
-Object Detection
+## Requirements
 
-The project uses an Ultralytics YOLO model for general object detection.
+* Python 3.10+
+* FastAPI
+* Uvicorn
+* Ultralytics YOLO
+* PyTorch
+* OpenCV
+* OCR dependencies
 
-The API can detect common objects such as:
+Install the required Python packages with:
 
-person
-car
-truck
-and other supported COCO classes
-Indian Currency Detection
-
-The project includes a pretrained Indian currency detection model:
-
-indian_currency_pretrained.pt
-
-Supported denominations:
-
-₹10
-₹20
-₹50
-₹100
-₹200
-₹500
-₹2000
-
-The model maps detections to denomination names such as:
-
-10
-20
-50
-100
-200
-500
-2000
-Installation
-
-Clone the repository:
-
-git clone https://github.com/nisha831/visionai-backend.git
-cd visionai-backend
-
-Create a virtual environment:
-
-python -m venv venv
-
-Activate the virtual environment on Windows Git Bash:
-
-source venv/Scripts/activate
-
-Install dependencies:
-
+```bash
 pip install -r requirements.txt
-Running the API
+```
 
-Start the FastAPI server:
+## Running the Backend
 
-uvicorn backend.main:app --reload
+Activate the virtual environment:
 
-The server will start at:
+### Windows / Git Bash
 
+```bash
+source venv/Scripts/activate
+```
+
+Then start the FastAPI server:
+
+```bash
+python -m uvicorn backend.main:app
+```
+
+The API will be available at:
+
+```text
 http://127.0.0.1:8000
-API Documentation
+```
 
-Once the server is running, open:
+## Health Check
 
-http://127.0.0.1:8000/docs
+Open:
 
-This opens the interactive Swagger UI.
+```text
+http://127.0.0.1:8000/health
+```
 
-You can use it to test the /analyze endpoint directly from the browser.
+Or use:
 
-Analyze an Image
+```bash
+curl http://127.0.0.1:8000/health
+```
 
-The main endpoint is:
+A successful response looks like:
 
-POST /analyze
+```json
+{
+  "status": "healthy",
+  "yolo": "loaded",
+  "ocr": "loaded",
+  "currency_detector": "loaded",
+  "currency_model": "loaded"
+}
+```
 
-Upload an image using the Swagger UI or curl.
+## Analyze an Image
+
+Send an image to the `/analyze` endpoint:
+
+```bash
+curl -X POST "http://127.0.0.1:8000/analyze" \
+  -F "file=@uploads/500.jpeg"
+```
+
+The API returns:
+
+* image dimensions
+* detected objects
+* extracted OCR text
+* currency detections
+* final currency prediction
 
 Example:
 
-curl -X POST \
-  "http://127.0.0.1:8000/analyze" \
-  -H "accept: application/json" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@images/Car.PNG;type=image/png"
-Example Response
+```json
 {
   "message": "Image analyzed successfully!",
-  "filename": "Car.PNG",
-  "image_size": {
-    "width": 483,
-    "height": 318
-  },
-  "objects": [
-    {
-      "name": "truck",
-      "confidence": 0.67,
-      "box": {
-        "x1": 24,
-        "y1": 39,
-        "x2": 461,
-        "y2": 280
-      }
-    },
-    {
-      "name": "car",
-      "confidence": 0.57,
-      "box": {
-        "x1": 20,
-        "y1": 39,
-        "x2": 457,
-        "y2": 281
-      }
-    }
-  ],
-  "text": [],
-  "currencies": []
+  "filename": "500.jpeg",
+  "final_currency": {
+    "name": "500",
+    "confidence": 0.20,
+    "source": "yolo"
+  }
 }
-Response Fields
-Field	Description
-message	Status message
-filename	Uploaded image filename
-image_size	Width and height of the uploaded image
-objects	YOLO object detections
-text	OCR results
-currencies	Indian currency detections
+```
 
-Each object detection contains:
+## Currency Detection
 
+VisionAI uses two signals:
+
+### YOLO
+
+The trained Indian currency model detects denominations and provides:
+
+* denomination
+* confidence
+* bounding box
+
+Example:
+
+```json
 {
-  "name": "car",
-  "confidence": 0.57,
+  "name": "500",
+  "confidence": 0.20,
   "box": {
-    "x1": 20,
-    "y1": 39,
-    "x2": 457,
-    "y2": 281
+    "x1": 299,
+    "y1": 8,
+    "x2": 1347,
+    "y2": 1038
   }
 }
-Currency Detection
+```
 
-Currency detection can also be tested directly through Python:
+### OCR
 
-python -c "from backend.ai.currency_model import CurrencyModel; c=CurrencyModel(); print(c.detect('uploads/126812eb-bec3-43e1-9926-51f3a6a5852f.jpeg'))"
+OCR extracts visible text from the currency note.
 
-Example output:
+For example:
 
-[
-  {
-    'name': '200',
-    'confidence': 0.42,
-    'box': {
-      'x1': 136,
-      'y1': 0,
-      'x2': 1159,
-      'y2': 806
-    }
-  }
-]
+```text
+RESERVE BANK OF INDIA
+MAHATMA GANDHI
+500
+```
 
-Detection confidence can vary depending on:
+The backend combines OCR and YOLO information to determine the final denomination.
 
-image quality
-lighting
-note orientation
-distance from camera
-background
-multiple notes in the image
-Testing Object Detection
+## API Endpoints
 
-The YOLO detector can be tested with:
+| Method | Endpoint   | Description               |
+| ------ | ---------- | ------------------------- |
+| GET    | `/`        | Backend information       |
+| GET    | `/health`  | Check AI model status     |
+| POST   | `/analyze` | Analyze an uploaded image |
 
-python -c "from backend.ai.yolo_detector import YOLODetector; print('YOLO detector import OK')"
+## API Documentation
 
-Example test images are stored in:
+FastAPI automatically provides interactive API documentation.
 
-images/
+After starting the backend, open:
 
-Current test images include:
+```text
+http://127.0.0.1:8000/docs
+```
 
-Car.PNG
-objects.PNG
-person.PNG
-room.PNG
-OCR
+This allows you to test `/analyze` directly from the browser.
 
-OCR processing is handled by:
+## Models
 
-backend/ai/ocr_reader.py
+The repository contains:
 
-OCR results are returned through the text field of the /analyze response.
+```text
+indian_currency_pretrained.pt
+yolo11n.pt
+yolo11s.pt
+```
 
-Security
+`indian_currency_pretrained.pt` is the trained Indian currency detection model used by the backend.
 
-Uploaded files are stored outside the Git repository:
+## Important Notes
 
-uploads/
+The project is currently focused on the **backend/API**. There is no frontend application included.
 
-The uploads/ directory is excluded using .gitignore.
+The backend currently runs on CPU on systems without a compatible NVIDIA GPU.
 
-Environment files are also excluded:
+## Development
 
-.env
-
-Virtual environments and Python cache files are excluded as well.
-
-Git Ignore
-
-The repository does not track temporary or local development files such as:
-
-venv/
-__pycache__/
-*.pyc
-.env
-uploads/
-.vscode/
-runs/
-training_data/
-Current Status
- FastAPI server
- Swagger documentation
- Image upload
- YOLO object detection
- Indian currency detection
- OCR
- Structured API responses
- Secure upload handling
- GitHub repository organization
- Indian currency pretrained model
-Future Improvements
-
-Possible future improvements include:
-
-Improve currency detection accuracy
-Add more currency image training data
-Improve multi-note detection
-Add confidence filtering
-Add annotated output images
-Improve OCR accuracy
-Add automated API tests
-Add frontend integration
-Add GPU support for faster inference
-Deploy the backend to a cloud service
-License
-
-This project is intended for educational and development purposes.
-
-
-After saving, **don't change anything else yet**. Run these three commands:
+Run the server normally:
 
 ```bash
-git diff -- README.md
+python -m uvicorn backend.main:app
+```
+
+For development with automatic reload:
+
+```bash
+python -m uvicorn backend.main:app --reload
+```
+
+## Repository
+
+GitHub:
+
+https://github.com/nisha831/visionai-backend
+
+## License
+
+This project is intended for educational and development purposes.
