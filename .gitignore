@@ -1,16 +1,15 @@
 venv/
 __pycache__/
 *.pyc
-.env
+
 uploads/
-.vscode/
-images/test.jpg
-yolo11n.pt
-images/ocr_test.jpg
-
-# Temporary currency crop
-images/currency_crop.jpg
-
-# Training artifacts
 runs/
+
+.env
+*.env
+
+.ipynb_checkpoints/
+
+.DS_Store
+Thumbs.db
 training_data/
