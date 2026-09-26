@@ -1,180 +1,238 @@
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useState, useEffect } from "react";
+import {
+  ActivityIndicator,
+  FlatList,
+  Image,
+  Pressable,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { API_BASE_URL } from "@/constants/api";
 
-import { ExternalLink } from '@/components/external-link';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Collapsible } from '@/components/ui/collapsible';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+interface Session {
+  session_id: string;
+  timestamp: string;
+  question: string;
+  answer: string;
+  images_urls: string[];
+}
 
-export default function TabTwoScreen() {
-  const safeAreaInsets = useSafeAreaInsets();
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
+export default function HistoryScreen() {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchHistory = async () => {
+    try {
+      setError(null);
+      const response = await fetch(`${API_BASE_URL}/history`);
+      if (!response.ok) {
+        throw new Error("Failed to load history from backend");
+      }
+      const data = await response.json();
+      setSessions(data.sessions || []);
+    } catch (err: any) {
+      setError(err.message || "Could not connect to backend");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
-  const theme = useTheme();
 
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingTop: insets.top,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingBottom: insets.bottom,
-    },
-    web: {
-      paddingTop: Spacing.six,
-      paddingBottom: Spacing.four,
-    },
-  });
+  useEffect(() => {
+    setLoading(true);
+    fetchHistory();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchHistory();
+  };
+
+  const formatDate = (isoStr: string) => {
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleString();
+    } catch {
+      return isoStr;
+    }
+  };
+
+  const renderItem = ({ item }: { item: Session }) => (
+    <View style={styles.card}>
+      <Text style={styles.timestamp}>{formatDate(item.timestamp)}</Text>
+      <Text style={styles.questionLabel}>Question:</Text>
+      <Text style={styles.questionText}>"{item.question}"</Text>
+
+      <Text style={styles.answerLabel}>Gemini Answer:</Text>
+      <Text style={styles.answerText}>{item.answer}</Text>
+
+      {item.images_urls && item.images_urls.length > 0 && (
+        <View style={styles.imagesContainer}>
+          <Text style={styles.imagesLabel}>Analyzed Frames ({item.images_urls.length}):</Text>
+          <FlatList
+            horizontal
+            data={item.images_urls}
+            keyExtractor={(imgUrl, index) => `${item.session_id}_img_${index}`}
+            renderItem={({ item: imgPath }) => (
+              <Image
+                source={{ uri: `${API_BASE_URL}${imgPath}` }}
+                style={styles.historyImage}
+                resizeMode="cover"
+              />
+            )}
+            showsHorizontalScrollIndicator={false}
+          />
+        </View>
+      )}
+    </View>
+  );
 
   return (
-    <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
-      contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
-            This starter app includes example{'\n'}code to help you get started.
-          </ThemedText>
+    <View style={styles.container}>
+      <Text style={styles.title}>Visual History</Text>
+      <Text style={styles.subtitle}>Past questions, answers, and frame memories</Text>
 
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView type="backgroundElement" style={styles.linkButton}>
-                <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={theme.text}
-                  name={{ ios: 'arrow.up.right.square', android: 'link', web: 'link' }}
-                  size={12}
-                />
-              </ThemedView>
-            </Pressable>
-          </ExternalLink>
-        </ThemedView>
-
-        <ThemedView style={styles.sectionsWrapper}>
-          <Collapsible title="File-based routing">
-            <ThemedText type="small">
-              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
-              <ThemedText type="code">src/app/explore.tsx</ThemedText>
-            </ThemedText>
-            <ThemedText type="small">
-              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
-              the tab navigator.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/router/introduction">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Android, iOS, and web support">
-            <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
-              <ThemedText type="small">
-                You can open this project on Android, iOS, and the web. To open the web version,
-                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
-                project.
-              </ThemedText>
-              <Image
-                source={require('@/assets/images/tutorial-web.png')}
-                style={styles.imageTutorial}
-              />
-            </ThemedView>
-          </Collapsible>
-
-          <Collapsible title="Images">
-            <ThemedText type="small">
-              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
-              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
-              screen densities.
-            </ThemedText>
-            <Image source={require('@/assets/images/react-logo.png')} style={styles.imageReact} />
-            <ExternalLink href="https://reactnative.dev/docs/images">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Light and dark mode components">
-            <ThemedText type="small">
-              This template has light and dark mode support. The{' '}
-              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
-              user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Animations">
-            <ThemedText type="small">
-              This template includes an example of an animated component. The{' '}
-              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
-              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
-              animate opening this hint.
-            </ThemedText>
-          </Collapsible>
-        </ThemedView>
-        {Platform.OS === 'web' && <WebBadge />}
-      </ThemedView>
-    </ScrollView>
+      {loading ? (
+        <ActivityIndicator size="large" color="#1a73e8" style={styles.loader} />
+      ) : error ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable style={styles.retryButton} onPress={fetchHistory}>
+            <Text style={styles.retryText}>Retry</Text>
+          </Pressable>
+        </View>
+      ) : sessions.length === 0 ? (
+        <View style={styles.emptyBox}>
+          <Text style={styles.emptyText}>No history sessions saved yet.</Text>
+          <Text style={styles.emptySubtext}>Ask VisionAI a question from the Home screen to record sessions.</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={sessions}
+          keyExtractor={(item) => item.session_id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContainer}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        />
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
-  },
-  contentContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
   container: {
-    maxWidth: MaxContentWidth,
-    flexGrow: 1,
+    flex: 1,
+    backgroundColor: "#f5f5f5",
+    paddingTop: 50,
+    paddingHorizontal: 16,
   },
-  titleContainer: {
-    gap: Spacing.three,
-    alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
+  title: {
+    fontSize: 30,
+    fontWeight: "bold",
+    textAlign: "center",
   },
-  centerText: {
-    textAlign: 'center',
+  subtitle: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
+    marginBottom: 20,
   },
-  pressed: {
-    opacity: 0.7,
+  loader: {
+    marginTop: 40,
   },
-  linkButton: {
-    flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.five,
-    justifyContent: 'center',
-    gap: Spacing.one,
-    alignItems: 'center',
+  listContainer: {
+    paddingBottom: 40,
   },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
+  card: {
+    backgroundColor: "white",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#e0e0e0",
   },
-  collapsibleContent: {
-    alignItems: 'center',
+  timestamp: {
+    fontSize: 12,
+    color: "#888",
+    marginBottom: 8,
   },
-  imageTutorial: {
-    width: '100%',
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
+  questionLabel: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#555",
   },
-  imageReact: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
+  questionText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#1a73e8",
+    marginBottom: 10,
+  },
+  answerLabel: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#555",
+  },
+  answerText: {
+    fontSize: 14,
+    color: "#333",
+    lineHeight: 20,
+    marginBottom: 12,
+  },
+  imagesContainer: {
+    marginTop: 8,
+  },
+  imagesLabel: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#777",
+    marginBottom: 6,
+  },
+  historyImage: {
+    width: 120,
+    height: 90,
+    borderRadius: 8,
+    marginRight: 8,
+    backgroundColor: "#eee",
+  },
+  errorBox: {
+    alignItems: "center",
+    marginTop: 40,
+  },
+  errorText: {
+    fontSize: 15,
+    color: "#d93025",
+    textAlign: "center",
+    marginBottom: 12,
+  },
+  retryButton: {
+    backgroundColor: "#222",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  retryText: {
+    color: "white",
+    fontWeight: "600",
+  },
+  emptyBox: {
+    alignItems: "center",
+    marginTop: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#444",
+  },
+  emptySubtext: {
+    fontSize: 13,
+    color: "#888",
+    textAlign: "center",
+    marginTop: 6,
   },
 });
