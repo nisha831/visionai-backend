@@ -1,225 +1,294 @@
 
+from math import prod
+
+
 class CurrencyFusion:
+    """
+    Combines OCR and YOLO currency evidence.
 
-    # Valid Indian banknote denominations
-    VALID_DENOMINATIONS = {
-        10,
-        20,
-        50,
-        100,
-        200,
-        500,
-        2000
-    }
+    Safety principle:
+    - Strong OCR is trusted.
+    - OCR + matching YOLO increases confidence.
+    - Multiple matching YOLO detections can be combined.
+    - A single moderate YOLO prediction is NOT enough.
+    - Weak/conflicting evidence returns NONE.
+    """
 
-    # Confidence thresholds
-    OCR_MIN_CONFIDENCE = 0.60
-    YOLO_SINGLE_MIN_CONFIDENCE = 0.35
-    YOLO_MULTI_MIN_CONFIDENCE = 0.30
+    VALID_DENOMINATIONS = {10, 20, 50, 100, 200, 500, 2000}
 
-    def decide(self, ocr_results, yolo_results):
+    # OCR confidence thresholds
+    STRONG_OCR_THRESHOLD = 0.60
+    MODERATE_OCR_THRESHOLD = 0.30
 
-        # ==================================================
-        # 1. Process OCR results
-        # ==================================================
+    # YOLO thresholds
+    # A single detection must now be substantially stronger
+    SINGLE_YOLO_THRESHOLD = 0.70
 
-        ocr_candidates = {}
+    # Repeated detections can support each other
+    REPEATED_YOLO_THRESHOLD = 0.30
 
-        for item in ocr_results:
+    def __init__(self):
+        pass
 
-            amount = item.get("amount")
-            confidence = float(
-                item.get("confidence", 0)
+    def _normalize_denomination(self, value):
+        """
+        Convert a denomination value to an integer if valid.
+        """
+        try:
+            denomination = int(value)
+        except (TypeError, ValueError):
+            return None
+
+        if denomination in self.VALID_DENOMINATIONS:
+            return denomination
+
+        return None
+
+    def _get_ocr_evidence(self, currencies):
+        """
+        Return the strongest valid OCR currency result.
+        """
+        evidence = []
+
+        for item in currencies or []:
+            denomination = self._normalize_denomination(
+                item.get("amount")
             )
 
-            if amount is None:
+            if denomination is None:
                 continue
 
             try:
-                denomination = int(float(amount))
-            except (ValueError, TypeError):
-                continue
+                confidence = float(item.get("confidence", 0.0))
+            except (TypeError, ValueError):
+                confidence = 0.0
 
-            if denomination not in self.VALID_DENOMINATIONS:
-                continue
-
-            # Keep highest-confidence OCR result for each denomination
-            if (
-                denomination not in ocr_candidates
-                or confidence > ocr_candidates[denomination]["confidence"]
-            ):
-                ocr_candidates[denomination] = {
+            evidence.append(
+                {
                     "denomination": denomination,
                     "confidence": confidence,
-                    "source": "OCR"
+                    "source_text": item.get("source_text", ""),
                 }
+            )
 
-        # ==================================================
-        # 2. Process & Aggregate YOLO results by denomination
-        # ==================================================
+        if not evidence:
+            return None
 
-        yolo_grouped = {}
+        evidence.sort(
+            key=lambda item: item["confidence"],
+            reverse=True,
+        )
 
-        for item in yolo_results:
+        return evidence[0]
 
-            name = str(item.get("name", "")).strip()
-            confidence = float(item.get("confidence", 0))
+    def _get_yolo_evidence(self, currency_predictions):
+        """
+        Group YOLO predictions by denomination and calculate
+        aggregate confidence using noisy-OR:
+
+            1 - product(1 - confidence)
+
+        This allows repeated detections of the same denomination
+        to provide stronger evidence without simply adding
+        probabilities.
+        """
+        grouped = {}
+
+        for prediction in currency_predictions or []:
+            denomination = self._normalize_denomination(
+                prediction.get("name")
+            )
+
+            if denomination is None:
+                continue
 
             try:
-                denomination = int(float(name))
-            except (ValueError, TypeError):
-                continue
-
-            if denomination not in self.VALID_DENOMINATIONS:
-                continue
-
-            if denomination not in yolo_grouped:
-                yolo_grouped[denomination] = []
-            yolo_grouped[denomination].append(confidence)
-
-        yolo_candidates = {}
-
-        for denomination, conf_list in yolo_grouped.items():
-
-            # Probabilistic noisy-OR combination for repeated detections
-            prod_neg = 1.0
-            for c in conf_list:
-                prod_neg *= (1.0 - min(1.0, max(0.0, c)))
-
-            aggregated_conf = 1.0 - prod_neg
-            max_conf = max(conf_list)
-            count = len(conf_list)
-
-            yolo_candidates[denomination] = {
-                "denomination": denomination,
-                "confidence": round(aggregated_conf, 2),
-                "max_confidence": max_conf,
-                "count": count,
-                "source": "YOLO"
-            }
-
-        # ==================================================
-        # 3. Find strong OCR predictions
-        # ==================================================
-
-        strong_ocr = [
-            item
-            for item in ocr_candidates.values()
-            if item["confidence"] >= self.OCR_MIN_CONFIDENCE
-        ]
-
-        # ==================================================
-        # 4. Strong OCR gets priority
-        # ==================================================
-
-        if strong_ocr:
-
-            best_ocr = max(
-                strong_ocr,
-                key=lambda item: item["confidence"]
-            )
-
-            denomination = best_ocr["denomination"]
-            ocr_confidence = best_ocr["confidence"]
-
-            # OCR and YOLO agree on denomination
-            if denomination in yolo_candidates:
-
-                yolo_confidence = yolo_candidates[denomination]["confidence"]
-
-                combined_confidence = min(
-                    1.0,
-                    ocr_confidence * 0.70 + yolo_confidence * 0.30
+                confidence = float(
+                    prediction.get("confidence", 0.0)
                 )
+            except (TypeError, ValueError):
+                confidence = 0.0
 
-                return {
-                    "currency": "INR",
+            if confidence <= 0:
+                continue
+
+            grouped.setdefault(denomination, []).append(
+                confidence
+            )
+
+        evidence = []
+
+        for denomination, confidences in grouped.items():
+            aggregate = 1.0
+
+            for confidence in confidences:
+                aggregate *= (1.0 - confidence)
+
+            aggregate = 1.0 - aggregate
+
+            evidence.append(
+                {
                     "denomination": denomination,
-                    "confidence": round(combined_confidence, 2),
-                    "source": "OCR+YOLO"
+                    "confidence": aggregate,
+                    "count": len(confidences),
+                    "individual_confidences": confidences,
                 }
-
-            # OCR is strong but YOLO disagrees/absent
-            return {
-                "currency": "INR",
-                "denomination": denomination,
-                "confidence": round(ocr_confidence, 2),
-                "source": "OCR"
-            }
-
-        # ==================================================
-        # 5. Moderate OCR with YOLO Agreement
-        # ==================================================
-
-        moderate_ocr_matches = []
-
-        for denom, ocr_item in ocr_candidates.items():
-            if denom in yolo_candidates:
-                ocr_conf = ocr_item["confidence"]
-                yolo_conf = yolo_candidates[denom]["confidence"]
-                combined = min(1.0, ocr_conf * 0.60 + yolo_conf * 0.40)
-                if combined >= 0.35:
-                    moderate_ocr_matches.append({
-                        "denomination": denom,
-                        "confidence": round(combined, 2),
-                        "source": "OCR+YOLO"
-                    })
-
-        if moderate_ocr_matches:
-
-            best_match = max(
-                moderate_ocr_matches,
-                key=lambda item: item["confidence"]
             )
 
-            return {
-                "currency": "INR",
-                "denomination": best_match["denomination"],
-                "confidence": best_match["confidence"],
-                "source": "OCR+YOLO"
-            }
+        evidence.sort(
+            key=lambda item: item["confidence"],
+            reverse=True,
+        )
 
-        # ==================================================
-        # 6. Evaluate YOLO evidence (multi vs. single detection)
-        # ==================================================
+        return evidence
 
-        valid_yolo = []
-
-        for item in yolo_candidates.values():
-            count = item["count"]
-            agg_conf = item["confidence"]
-            max_conf = item["max_confidence"]
-
-            # Multi-detection: count >= 2 with aggregated confidence >= 0.30
-            if count >= 2 and agg_conf >= self.YOLO_MULTI_MIN_CONFIDENCE:
-                valid_yolo.append(item)
-            # Single detection: requires max confidence >= 0.35
-            elif count == 1 and max_conf >= self.YOLO_SINGLE_MIN_CONFIDENCE:
-                valid_yolo.append(item)
-
-        if valid_yolo:
-
-            best_yolo = max(
-                valid_yolo,
-                key=lambda item: item["confidence"]
-            )
-
-            return {
-                "currency": "INR",
-                "denomination": best_yolo["denomination"],
-                "confidence": best_yolo["confidence"],
-                "source": "YOLO"
-            }
-
-        # ==================================================
-        # 7. Nothing reliable found
-        # ==================================================
-
+    def _none_result(self):
         return {
             "currency": "INR",
             "denomination": None,
             "confidence": 0.0,
-            "source": "NONE"
+            "source": "NONE",
         }
 
+    def decide(self, currencies, currency_predictions):
+        """
+        Decide the final Indian currency denomination.
+
+        Priority:
+
+        1. Strong OCR
+        2. Strong OCR + matching YOLO
+        3. Moderate OCR + matching YOLO
+        4. Multiple consistent YOLO detections
+        5. Very strong single YOLO detection
+        6. Otherwise NONE
+        """
+
+        ocr = self._get_ocr_evidence(currencies)
+        yolo = self._get_yolo_evidence(currency_predictions)
+
+        # ---------------------------------------------------------
+        # 1. STRONG OCR
+        # ---------------------------------------------------------
+        if (
+            ocr is not None
+            and ocr["confidence"] >= self.STRONG_OCR_THRESHOLD
+        ):
+            denomination = ocr["denomination"]
+
+            matching_yolo = next(
+                (
+                    item
+                    for item in yolo
+                    if item["denomination"] == denomination
+                ),
+                None,
+            )
+
+            # Strong OCR alone is sufficient.
+            if matching_yolo is None:
+                return {
+                    "currency": "INR",
+                    "denomination": denomination,
+                    "confidence": round(
+                        ocr["confidence"], 2
+                    ),
+                    "source": "OCR",
+                }
+
+            # Matching OCR + YOLO gets a weighted confidence.
+            combined = (
+                0.70 * ocr["confidence"]
+                + 0.30 * matching_yolo["confidence"]
+            )
+
+            return {
+                "currency": "INR",
+                "denomination": denomination,
+                "confidence": round(
+                    min(combined, 1.0), 2
+                ),
+                "source": "OCR+YOLO",
+            }
+
+        # ---------------------------------------------------------
+        # 2. MODERATE OCR + MATCHING YOLO
+        # ---------------------------------------------------------
+        if (
+            ocr is not None
+            and ocr["confidence"] >= self.MODERATE_OCR_THRESHOLD
+        ):
+            denomination = ocr["denomination"]
+
+            matching_yolo = next(
+                (
+                    item
+                    for item in yolo
+                    if item["denomination"] == denomination
+                ),
+                None,
+            )
+
+            if matching_yolo is not None:
+                combined = (
+                    0.70 * ocr["confidence"]
+                    + 0.30 * matching_yolo["confidence"]
+                )
+
+                # Require enough combined evidence.
+                if combined >= self.MODERATE_OCR_THRESHOLD:
+                    return {
+                        "currency": "INR",
+                        "denomination": denomination,
+                        "confidence": round(
+                            min(combined, 1.0), 2
+                        ),
+                        "source": "OCR+YOLO",
+                    }
+
+        # ---------------------------------------------------------
+        # 3. MULTIPLE CONSISTENT YOLO DETECTIONS
+        # ---------------------------------------------------------
+        if yolo:
+            best = yolo[0]
+
+            if (
+                best["count"] >= 2
+                and best["confidence"]
+                >= self.REPEATED_YOLO_THRESHOLD
+            ):
+                return {
+                    "currency": "INR",
+                    "denomination": best["denomination"],
+                    "confidence": round(
+                        best["confidence"], 2
+                    ),
+                    "source": "YOLO",
+                }
+
+        # ---------------------------------------------------------
+        # 4. VERY STRONG SINGLE YOLO DETECTION
+        # ---------------------------------------------------------
+        if yolo:
+            best = yolo[0]
+
+            if (
+                best["count"] == 1
+                and best["individual_confidences"][0]
+                >= self.SINGLE_YOLO_THRESHOLD
+            ):
+                return {
+                    "currency": "INR",
+                    "denomination": best["denomination"],
+                    "confidence": round(
+                        best["individual_confidences"][0],
+                        2,
+                    ),
+                    "source": "YOLO",
+                }
+
+        # ---------------------------------------------------------
+        # 5. NO RELIABLE EVIDENCE
+        # ---------------------------------------------------------
+        return self._none_result()
 
