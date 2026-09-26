@@ -1,3 +1,4 @@
+
 from ultralytics import YOLO
 
 
@@ -12,7 +13,7 @@ class CurrencyModel:
             image_path,
             conf=0.10,
             iou=0.45,
-            imgsz=640,
+            imgsz=960,
             verbose=False
         )
 
@@ -40,4 +41,10 @@ class CurrencyModel:
                     }
                 })
 
+        currencies.sort(
+            key=lambda item: item["confidence"],
+            reverse=True
+        )
+
         return currencies
+
