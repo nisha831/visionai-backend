@@ -1,311 +1,92 @@
+
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.cors import CORSMiddleware
+
 from backend.ai.yolo_detector import YOLODetector
 from backend.ai.ocr_reader import OCRReader
 from backend.ai.currency_detector import CurrencyDetector
 from backend.ai.currency_model import CurrencyModel
+from backend.ai.currency_fusion import CurrencyFusion
 
 import shutil
 import os
 import uuid
 import cv2
-import re
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5500", "http://localhost:5500"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# ==================================================
+# FastAPI application
+# ==================================================
 
 app = FastAPI(
     title="VisionAI Backend",
     version="1.0.0"
 )
 
-app.add_middleware(CORSMiddleware, allow_origins=["http://127.0.0.1:5500", "http://localhost:5500"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+# ==================================================
+# CORS
+# ==================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://127.0.0.1:5500",
+        "http://localhost:5500"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ==================================================
+# Upload folder
+# ==================================================
 
 UPLOAD_FOLDER = "uploads"
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+os.makedirs(
+    UPLOAD_FOLDER,
+    exist_ok=True
+)
 
 
-# Load models
+# ==================================================
+# Load AI models
+# ==================================================
+
+print("Loading VisionAI models...")
+
 detector = YOLODetector()
+
 ocr = OCRReader()
+
 currency_detector = CurrencyDetector()
+
 currency_model = CurrencyModel()
 
+fusion = CurrencyFusion()
 
-VALID_DENOMINATIONS = {
-    "5",
-    "10",
-    "20",
-    "50",
-    "100",
-    "200",
-    "500",
-    "2000"
-}
+print("All VisionAI models loaded.")
 
 
-def clean_ocr_text(text):
-
-    text = str(text).upper()
-
-    text = text.replace("₹", "")
-    text = text.replace(",", "")
-    text = text.replace(".", "")
-    text = text.replace("{", "")
-    text = text.replace("}", "")
-    text = text.replace("[", "")
-    text = text.replace("]", "")
-    text = text.strip()
-
-    return text
-
-
-def get_ocr_evidence(text):
-
-    evidence = []
-
-    for item in text:
-
-        raw = item.get("text", "")
-        confidence = float(
-            item.get("confidence", 0)
-        )
-
-        cleaned = clean_ocr_text(raw)
-
-        # -----------------------------------------
-        # EXACT denomination
-        # -----------------------------------------
-
-        if cleaned in VALID_DENOMINATIONS:
-
-            evidence.append({
-                "name": cleaned,
-                "confidence": confidence,
-                "text": raw,
-                "type": "exact"
-            })
-
-            continue
-
-        # -----------------------------------------
-        # NOISY OCR
-        #
-        # Look only for denominations with
-        # TWO OR MORE DIGITS.
-        #
-        # This prevents:
-        #
-        # 850 -> 5
-        #
-        # from happening.
-        # -----------------------------------------
-
-        for denomination in [
-            "2000",
-            "500",
-            "200",
-            "100",
-            "50",
-            "20",
-            "10"
-        ]:
-
-            if denomination in cleaned:
-
-                evidence.append({
-                    "name": denomination,
-                    "confidence": confidence,
-                    "text": raw,
-                    "type": "noisy"
-                })
-
-                break
-
-    return evidence
-
-
-def choose_currency(text, yolo):
-
-    ocr = get_ocr_evidence(text)
-
-    # ==================================================
-    # SPECIAL CASE: ₹50
-    # ==================================================
-    #
-    # Your real ₹50 image contains OCR such as:
-    #
-    # 850
-    # 5ECL973735
-    #
-    # We know the standalone "5" is misleading.
-    #
-    # If OCR contains a noisy 50 signal, prefer it.
-    # ==================================================
-
-    fifty = [
-        x for x in ocr
-        if x["name"] == "50"
-    ]
-
-    if fifty:
-
-        best = max(
-            fifty,
-            key=lambda x: x["confidence"]
-        )
-
-        return {
-            "name": "50",
-            "confidence": round(
-                best["confidence"],
-                2
-            ),
-            "source": "ocr"
-        }
-
-
-    # ==================================================
-    # OTHER MULTI-DIGIT OCR RESULTS
-    # ==================================================
-
-    multi_digit = [
-        x for x in ocr
-        if x["name"] != "5"
-    ]
-
-    if multi_digit:
-
-        # Prefer the highest-confidence OCR result
-        best_ocr = max(
-            multi_digit,
-            key=lambda x: x["confidence"]
-        )
-
-        # Check if YOLO agrees
-        matching_yolo = [
-            x for x in yolo
-            if str(x["name"]) == best_ocr["name"]
-        ]
-
-        if matching_yolo:
-
-            best_yolo = max(
-                matching_yolo,
-                key=lambda x: x["confidence"]
-            )
-
-            return {
-                "name": best_ocr["name"],
-                "confidence": round(
-                    max(
-                        best_ocr["confidence"],
-                        best_yolo["confidence"]
-                    ),
-                    2
-                ),
-                "source": "ocr+yolo"
-            }
-
-        # OCR is strong enough by itself
-        if best_ocr["confidence"] >= 0.50:
-
-            return {
-                "name": best_ocr["name"],
-                "confidence": round(
-                    best_ocr["confidence"],
-                    2
-                ),
-                "source": "ocr"
-            }
-
-
-    # ==================================================
-    # ₹5
-    # ==================================================
-    #
-    # IMPORTANT:
-    # Do NOT automatically trust OCR "5".
-    #
-    # Only accept it if YOLO also predicts 5.
-    # ==================================================
-
-    five = [
-        x for x in ocr
-        if x["name"] == "5"
-    ]
-
-    yolo_five = [
-        x for x in yolo
-        if str(x["name"]) == "5"
-    ]
-
-    if five and yolo_five:
-
-        best_ocr = max(
-            five,
-            key=lambda x: x["confidence"]
-        )
-
-        best_yolo = max(
-            yolo_five,
-            key=lambda x: x["confidence"]
-        )
-
-        return {
-            "name": "5",
-            "confidence": round(
-                max(
-                    best_ocr["confidence"],
-                    best_yolo["confidence"]
-                ),
-                2
-            ),
-            "source": "ocr+yolo"
-        }
-
-
-    # ==================================================
-    # YOLO FALLBACK
-    # ==================================================
-
-    if yolo:
-
-        best_yolo = max(
-            yolo,
-            key=lambda x: x["confidence"]
-        )
-
-        return {
-            "name": str(best_yolo["name"]),
-            "confidence": round(
-                best_yolo["confidence"],
-                2
-            ),
-            "source": "yolo"
-        }
-
-
-    return None
-
+# ==================================================
+# Home endpoint
+# ==================================================
 
 @app.get("/")
 def home():
 
     return {
         "project": "VisionAI",
-        "status": "Backend Running ���"
+        "status": "Backend Running"
     }
 
+
+# ==================================================
+# Health endpoint
+# ==================================================
 
 @app.get("/health")
 def health():
@@ -315,14 +96,23 @@ def health():
         "yolo": "loaded",
         "ocr": "loaded",
         "currency_detector": "loaded",
-        "currency_model": "loaded"
+        "currency_model": "loaded",
+        "currency_fusion": "loaded"
     }
 
+
+# ==================================================
+# Analyze image
+# ==================================================
 
 @app.post("/analyze")
 async def analyze_image(
     file: UploadFile = File(...)
 ):
+
+    # ==================================================
+    # 1. Validate file type
+    # ==================================================
 
     allowed_types = {
         "image/jpeg",
@@ -335,13 +125,28 @@ async def analyze_image(
 
         raise HTTPException(
             status_code=400,
-            detail="Only JPG, JPEG, PNG, and WEBP images are allowed."
+            detail=(
+                "Only JPG, JPEG, PNG, and WEBP "
+                "images are allowed."
+            )
         )
 
+    # ==================================================
+    # 2. Create safe filename
+    # ==================================================
+
+    original_filename = (
+        file.filename
+        if file.filename
+        else "image.jpg"
+    )
 
     extension = os.path.splitext(
-        file.filename
+        original_filename
     )[1]
+
+    if not extension:
+        extension = ".jpg"
 
     safe_filename = (
         f"{uuid.uuid4()}{extension}"
@@ -352,16 +157,27 @@ async def analyze_image(
         safe_filename
     )
 
+    # ==================================================
+    # 3. Save uploaded image
+    # ==================================================
 
-    with open(file_path, "wb") as buffer:
+    with open(
+        file_path,
+        "wb"
+    ) as buffer:
 
         shutil.copyfileobj(
             file.file,
             buffer
         )
 
+    # ==================================================
+    # 4. Read image
+    # ==================================================
 
-    image = cv2.imread(file_path)
+    image = cv2.imread(
+        file_path
+    )
 
     if image is None:
 
@@ -370,40 +186,56 @@ async def analyze_image(
             detail="Could not read uploaded image."
         )
 
+    # ==================================================
+    # 5. Get image dimensions
+    # ==================================================
 
     height, width = image.shape[:2]
 
+    # ==================================================
+    # 6. General object detection
+    # ==================================================
 
-    # General object detection
     objects = detector.detect(
         file_path
     )
 
+    # ==================================================
+    # 7. OCR
+    # ==================================================
 
-    # OCR
     text = ocr.read(
         file_path
     )
 
+    # ==================================================
+    # 8. Detect Indian currency from OCR
+    # ==================================================
 
-    # Existing OCR currency detection
     currencies = currency_detector.detect(
         text
     )
 
+    # ==================================================
+    # 9. Indian currency YOLO model
+    # ==================================================
 
-    # Dedicated currency YOLO
-    currency_detections = currency_model.detect(
+    currency_predictions = currency_model.detect(
         file_path
     )
 
+    # ==================================================
+    # 10. Evidence fusion
+    # ==================================================
 
-    # Final currency decision
-    final_currency = choose_currency(
-        text,
-        currency_detections
+    final_currency = fusion.decide(
+        currencies,
+        currency_predictions
     )
 
+    # ==================================================
+    # 11. Final API response
+    # ==================================================
 
     return {
 
@@ -411,11 +243,15 @@ async def analyze_image(
             "Image analyzed successfully!",
 
         "filename":
-            file.filename,
+            original_filename,
 
         "image_size": {
-            "width": width,
-            "height": height
+
+            "width":
+                width,
+
+            "height":
+                height
         },
 
         "objects":
@@ -427,9 +263,10 @@ async def analyze_image(
         "currencies":
             currencies,
 
-        "currency_detections":
-            currency_detections,
+        "currency_predictions":
+            currency_predictions,
 
         "final_currency":
             final_currency
     }
+
