@@ -1,12 +1,4 @@
-import { useState, useEffect } from "react";
-import {
-  useAudioRecorder,
-  RecordingPresets,
-  requestRecordingPermissionsAsync,
-  setAudioModeAsync,
-} from "expo-audio";
-import * as Speech from "expo-speech";
-import { uploadAsync, FileSystemUploadType, getInfoAsync } from "expo-file-system/legacy";
+import { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -14,690 +6,986 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
+import {
+  CameraView,
+  useCameraPermissions,
+} from "expo-camera";
+
 import { API_BASE_URL } from "@/constants/api";
 
-const PRESET_QUESTIONS = [
-  "What is in front of me?",
-  "Describe the situation around me.",
-  "What objects are around me?",
-  "Is there an obstacle nearby?",
-  "What note is in my hand?",
-  "What is written on this?",
-  "What do you see?",
-];
-
 export default function HomeScreen() {
-  const [result, setResult] = useState("Press Start Camera or ask a question.");
-  const [imageUri, setImageUri] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [question, setQuestion] = useState("");
-  const [asking, setAsking] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingUri, setRecordingUri] = useState<string | null>(null);
-  const [voiceStartedCamera, setVoiceStartedCamera] = useState(false);
+  // ==================================================
+  // CAMERA
+  // ==================================================
 
-  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const [permission, requestPermission] =
+    useCameraPermissions();
 
-  // Poll camera status & preview when camera is active
-  useEffect(() => {
-    let interval: ReturnType<typeof setInterval> | null = null;
-    if (isCapturing) {
-      interval = setInterval(() => {
-        // Refresh preview image
-        setImageUri(`${API_BASE_URL}/camera/image?t=${Date.now()}`);
-      }, 2000);
+  const cameraRef = useRef<CameraView | null>(null);
+
+  const [cameraReady, setCameraReady] =
+    useState(false);
+
+  const [imageUri, setImageUri] =
+    useState<string | null>(null);
+
+  const [loading, setLoading] =
+    useState(false);
+
+  const [result, setResult] = useState(
+    "Allow camera access, then capture an image."
+  );
+
+  // ==================================================
+  // PERMISSION LOADING
+  // ==================================================
+
+  if (!permission) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" />
+
+        <Text style={styles.infoText}>
+          Checking camera permission...
+        </Text>
+      </View>
+    );
+  }
+
+  // ==================================================
+  // PERMISSION NOT GRANTED
+  // ==================================================
+
+  if (!permission.granted) {
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.title}>
+          VisionAI
+        </Text>
+
+        <Text style={styles.infoText}>
+          VisionAI needs access to your laptop camera.
+        </Text>
+
+        <Pressable
+          style={styles.primaryButton}
+          onPress={requestPermission}
+        >
+          <Text style={styles.primaryButtonText}>
+            Allow Camera
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  // ==================================================
+  // CAPTURE + ANALYZE
+  // ==================================================
+
+  const handleCapture = async () => {
+    console.log(
+      "================================"
+    );
+
+    console.log(
+      "[CAMERA] Capture button pressed"
+    );
+
+    console.log(
+      "[CAMERA] cameraReady:",
+      cameraReady
+    );
+
+    console.log(
+      "[CAMERA] cameraRef:",
+      cameraRef.current
+    );
+
+    console.log(
+      "================================"
+    );
+
+    if (!cameraRef.current) {
+      const message =
+        "Camera reference is not available.";
+
+      console.error(
+        "[CAMERA]",
+        message
+      );
+
+      setResult(
+        `CAPTURE ERROR\n\n${message}`
+      );
+
+      return;
     }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isCapturing]);
 
-  // Check backend camera status on mount
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/camera/status`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && typeof data.is_capturing === "boolean") {
-          setIsCapturing(data.is_capturing);
-          if (data.is_capturing) {
-            setImageUri(`${API_BASE_URL}/camera/image?t=${Date.now()}`);
-            setResult("Camera is active and continuously capturing frames.");
-          }
-        }
-      })
-      .catch(() => {
-        // Backend off or unreachable on initial check
-      });
-  }, []);
+    if (!cameraReady) {
+      const message =
+        "Camera is not ready yet.";
 
-  // Toggle Camera ON/OFF
-  const handleToggleCamera = async () => {
-    try {
-      setLoading(true);
-      const endpoint = isCapturing ? "/camera/stop" : "/camera/start";
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        method: "POST",
-      });
+      console.error(
+        "[CAMERA]",
+        message
+      );
 
-      if (!response.ok) {
-        throw new Error(`Failed to ${isCapturing ? "stop" : "start"} camera`);
-      }
+      setResult(
+        `CAPTURE ERROR\n\n${message}`
+      );
 
-      const data = await response.json();
-      const newCaptureState = !isCapturing;
-      setIsCapturing(newCaptureState);
-
-      if (newCaptureState) {
-        setResult("Camera is ON. Capturing images every 1–2 seconds.");
-        setImageUri(`${API_BASE_URL}/camera/image?t=${Date.now()}`);
-      } else {
-        setResult(`Camera is OFF. Frames are stored for analysis. Total captured: ${data.captured_frames_count || 0}`);
-      }
-    } catch (error) {
-      console.log(error);
-      setResult(`Network Error: Could not connect to Raspberry Pi at ${API_BASE_URL}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Instant single capture (preserved existing behavior)
-  const handleManualCapture = async () => {
-    try {
-      setLoading(true);
-      setResult("Capturing single frame...");
-      const response = await fetch(`${API_BASE_URL}/camera/capture`, {
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        throw new Error("Single camera capture failed");
-      }
-
-      const data = await response.json();
-      const imageUrl = `${API_BASE_URL}${data.image_url}?t=${Date.now()}`;
-      setImageUri(imageUrl);
-      setResult("Frame captured successfully!");
-    } catch (error) {
-      console.log(error);
-      setResult("Could not capture single image from Raspberry Pi.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Ask Gemini Question (Text Flow)
-  const handleAsk = async (promptQuestion?: string) => {
-    const query = (promptQuestion || question).trim();
-    if (!query) {
-      setResult("Please enter or select a question first.");
       return;
     }
 
     try {
-      setAsking(true);
-      setResult(`Analyzing visual memory with Gemini for: "${query}"...`);
+      setLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/ask`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ question: query }),
-      });
+      setResult(
+        "Taking picture..."
+      );
+
+      // ==================================================
+      // TAKE PHOTO
+      // ==================================================
+
+      console.log(
+        "[CAMERA] Calling takePictureAsync..."
+      );
+
+      const photo =
+        await cameraRef.current.takePictureAsync({
+          base64: true,
+          quality: 0.8,
+        });
+
+      console.log(
+        "[CAMERA] Photo returned:",
+        photo
+      );
+
+      if (!photo) {
+        throw new Error(
+          "Camera returned no photo."
+        );
+      }
+
+      console.log(
+        "[CAMERA] Photo width:",
+        photo.width
+      );
+
+      console.log(
+        "[CAMERA] Photo height:",
+        photo.height
+      );
+
+      console.log(
+        "[CAMERA] Photo URI:",
+        photo.uri
+      );
+
+      console.log(
+        "[CAMERA] Base64 exists:",
+        !!photo.base64
+      );
+
+      if (!photo.base64) {
+        throw new Error(
+          "Camera returned no base64 image data."
+        );
+      }
+
+      console.log(
+        "[CAMERA] Base64 length:",
+        photo.base64.length
+      );
+
+      // ==================================================
+      // NORMALIZE BASE64
+      // ==================================================
+
+      /*
+       * On Web, Expo gives us the image as base64.
+       *
+       * Depending on the implementation/version,
+       * it can be either:
+       *
+       * 1. pure base64
+       *
+       * OR
+       *
+       * 2. data:image/jpeg;base64,...
+       *
+       * So we remove the data URI prefix if it exists.
+       */
+
+      let cleanBase64 =
+        photo.base64;
+
+      if (
+        cleanBase64.includes(",")
+      ) {
+        cleanBase64 =
+          cleanBase64.substring(
+            cleanBase64.indexOf(",") + 1
+          );
+      }
+
+      // Remove whitespace/newlines
+      cleanBase64 =
+        cleanBase64.replace(
+          /\s/g,
+          ""
+        );
+
+      console.log(
+        "[CAMERA] Clean base64 length:",
+        cleanBase64.length
+      );
+
+      // ==================================================
+      // DISPLAY IMAGE
+      // ==================================================
+
+      const imageDataUri =
+        `data:image/jpeg;base64,${cleanBase64}`;
+
+      setImageUri(
+        imageDataUri
+      );
+
+      console.log(
+        "[CAMERA] Captured image displayed successfully."
+      );
+
+      // ==================================================
+      // CONVERT BASE64 -> BLOB
+      // ==================================================
+
+      setResult(
+        "Photo captured successfully.\n\nConverting image..."
+      );
+
+      console.log(
+        "[BACKEND] Converting base64 to Blob..."
+      );
+
+      let binaryString: string;
+
+      try {
+        binaryString =
+          atob(cleanBase64);
+      } catch (decodeError) {
+        console.error(
+          "[BACKEND] Base64 decode failed:",
+          decodeError
+        );
+
+        throw new Error(
+          "The captured image base64 could not be decoded."
+        );
+      }
+
+      console.log(
+        "[BACKEND] Base64 decoded successfully."
+      );
+
+      const byteLength =
+        binaryString.length;
+
+      const bytes =
+        new Uint8Array(
+          byteLength
+        );
+
+      for (
+        let i = 0;
+        i < byteLength;
+        i++
+      ) {
+        bytes[i] =
+          binaryString.charCodeAt(i);
+      }
+
+      const imageBlob =
+        new Blob(
+          [bytes],
+          {
+            type: "image/jpeg",
+          }
+        );
+
+      console.log(
+        "[BACKEND] Blob created."
+      );
+
+      console.log(
+        "[BACKEND] Blob size:",
+        imageBlob.size,
+        "bytes"
+      );
+
+      console.log(
+        "[BACKEND] Blob type:",
+        imageBlob.type
+      );
+
+      if (imageBlob.size === 0) {
+        throw new Error(
+          "Generated image Blob is empty."
+        );
+      }
+
+      // ==================================================
+      // CREATE FILE
+      // ==================================================
+
+      const imageFile =
+        new File(
+          [imageBlob],
+          "camera_capture.jpg",
+          {
+            type: "image/jpeg",
+          }
+        );
+
+      console.log(
+        "[BACKEND] File created."
+      );
+
+      console.log(
+        "[BACKEND] File name:",
+        imageFile.name
+      );
+
+      console.log(
+        "[BACKEND] File size:",
+        imageFile.size
+      );
+
+      // ==================================================
+      // CREATE FORM DATA
+      // ==================================================
+
+      const formData =
+        new FormData();
+
+      formData.append(
+        "file",
+        imageFile
+      );
+
+      console.log(
+        "[BACKEND] FormData prepared."
+      );
+
+      // ==================================================
+      // SEND TO FASTAPI
+      // ==================================================
+
+      const backendUrl =
+        `${API_BASE_URL}/analyze`;
+
+      console.log(
+        "================================"
+      );
+
+      console.log(
+        "[BACKEND] Sending image to:"
+      );
+
+      console.log(
+        backendUrl
+      );
+
+      console.log(
+        "================================"
+      );
+
+      setResult(
+        "Image captured.\n\nSending image to VisionAI backend...\n\nYOLO + OCR processing..."
+      );
+
+      const response =
+        await fetch(
+          backendUrl,
+          {
+            method: "POST",
+            body: formData,
+          }
+        );
+
+      // ==================================================
+      // BACKEND RESPONSE
+      // ==================================================
+
+      console.log(
+        "[BACKEND] HTTP status:",
+        response.status
+      );
+
+      console.log(
+        "[BACKEND] HTTP OK:",
+        response.ok
+      );
+
+      const responseText =
+        await response.text();
+
+      console.log(
+        "[BACKEND] Raw response:"
+      );
+
+      console.log(
+        responseText
+      );
+
+      // ==================================================
+      // BACKEND ERROR
+      // ==================================================
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || "Failed to analyze question with Gemini");
+        throw new Error(
+          `Backend returned HTTP ${response.status}.\n\n${responseText}`
+        );
       }
 
-      const data = await response.json();
-      const answer = data.answer || "No response generated by Gemini.";
-      setResult(answer);
+      // ==================================================
+      // PARSE JSON
+      // ==================================================
 
-      if (data.images && data.images.length > 0) {
-        setImageUri(`${API_BASE_URL}${data.images[data.images.length - 1]}?t=${Date.now()}`);
-      }
+      let data: any;
 
-      // Speak answer for text flow as well
-      if (answer) {
-        try {
-          Speech.stop();
-          Speech.speak(answer, { language: "en" });
-        } catch (ttsErr) {
-          console.log("TTS Error:", ttsErr);
-        }
-      }
-    } catch (error: any) {
-      console.log(error);
-      setResult(`Error: ${error.message || "Failed to reach backend."}`);
-    } finally {
-      setAsking(false);
-    }
-  };
-
-  const handleDistance = () => {
-    setResult("Distance sensor data (HC-SR04) reserved for future update.");
-  };
-
-  const handleVoice = async () => {
-    console.log("[VOICE] Button pressed. isRecording:", isRecording);
-    try {
-      if (!isRecording) {
-        let startedCam = false;
-
-        // 1. If camera is NOT currently running, start camera for this voice session
-        if (!isCapturing) {
-          try {
-                    console.log("[VOICE] Starting camera for voice session...");
-            const camRes = await fetch(`${API_BASE_URL}/camera/start`, { method: "POST" });
-            if (camRes.ok) {
-              setIsCapturing(true);
-              setImageUri(`${API_BASE_URL}/camera/image?t=${Date.now()}`);
-              setVoiceStartedCamera(true);
-              startedCam = true;
-              console.log("[VOICE] Camera started successfully.");
-            } else {
-              console.log("[VOICE] Camera start returned non-OK:", camRes.status);
-              setResult("Could not start camera for voice session.");
-              return;
-            }
-          } catch (camErr) {
-            console.log("[VOICE] Camera start error:", camErr);
-            setResult("Could not start camera for voice session.");
-            return;
-          }
-        } else {
-          console.log("[VOICE] Camera already running, skipping camera start.");
-          setVoiceStartedCamera(false);
-        }
-
-        // 2. Request microphone permission
-        console.log("[VOICE] Requesting microphone permission...");
-        const permission = await requestRecordingPermissionsAsync();
-        console.log("[VOICE] Microphone permission:", JSON.stringify(permission));
-
-        if (!permission.granted) {
-          console.log("[VOICE] Microphone permission denied.");
-          if (startedCam) {
-            fetch(`${API_BASE_URL}/camera/stop`, { method: "POST" }).catch(() => {});
-            setIsCapturing(false);
-            setVoiceStartedCamera(false);
-          }
-          setResult("Microphone permission is required. Please allow microphone access in device settings.");
-          return;
-        }
-
-        // 3. Configure audio mode for recording
-        console.log("[VOICE] Setting audio mode for recording...");
-        await setAudioModeAsync({
-          allowsRecording: true,
-          playsInSilentMode: true,
-        });
-        console.log("[VOICE] Audio mode set.");
-
-        // 4. Prepare recorder — only call if not already prepared
-        console.log("[VOICE] Creating recorder (useAudioRecorder already created it).");
-        const statusBefore = audioRecorder.getStatus();
-        console.log("[VOICE] Recorder status before prepare:", JSON.stringify(statusBefore));
-
-        if (!statusBefore.canRecord) {
-          console.log("[VOICE] Preparing recorder...");
-          await audioRecorder.prepareToRecordAsync();
-          console.log("[VOICE] Recorder prepared.");
-        } else {
-          console.log("[VOICE] Recorder already prepared (canRecord=true), skipping prepareToRecordAsync.");
-        }
-
-        // 5. Start recording
-        console.log("[VOICE] Starting recording...");
-        audioRecorder.record();
-
-        // Verify recording actually started
-        const statusAfter = audioRecorder.getStatus();
-        console.log("[VOICE] Recording started. isRecording:", statusAfter.isRecording, "canRecord:", statusAfter.canRecord);
-
-        setIsRecording(true);
-        setResult("🔴 Voice session active — recording audio and capturing camera frames.");
-
-      } else {
-        // --- STOP RECORDING ---
-        console.log("[VOICE] Stopping recording...");
-        await audioRecorder.stop();
-        console.log("[VOICE] Recording stopped.");
-
-        // Give the OS 300ms to flush the audio file to disk (critical on Android)
-        await new Promise((resolve) => setTimeout(resolve, 300));
-
-        const uri = audioRecorder.uri;
-        const duration = audioRecorder.currentTime;
-        console.log("[VOICE] Recording URI:", uri);
-        console.log("[VOICE] Recording duration (s):", duration);
-
-        setIsRecording(false);
-        setRecordingUri(uri ?? null);
-
-        // Stop camera ONLY if Voice itself started it
-        if (voiceStartedCamera) {
-          console.log("[VOICE] Stopping camera (voice started it)...");
-          try {
-            await fetch(`${API_BASE_URL}/camera/stop`, { method: "POST" });
-            setIsCapturing(false);
-          } catch (camErr) {
-            console.log("[VOICE] Camera stop error:", camErr);
-          }
-          setVoiceStartedCamera(false);
-        } else {
-          console.log("[VOICE] Camera was already running before voice session — leaving it ON.");
-        }
-
-        if (!uri) {
-          setResult("Recording stopped, but no audio file was created.");
-          return;
-        }
-
-        // Check file size before uploading
-        let fileSize = 0;
-        try {
-          const fileInfo = await getInfoAsync(uri);
-          if (fileInfo.exists) {
-            fileSize = (fileInfo as any).size ?? 0;
-          }
-          console.log("[VOICE] Recording file size:", fileSize, "bytes");
-        } catch (infoErr) {
-          console.log("[VOICE] Could not get file info:", infoErr);
-        }
-
-        if (fileSize > 0 && fileSize < 1000) {
-          setResult(`Recording is too short or empty (${fileSize} bytes). Please speak clearly and try again.`);
-          return;
-        }
-
-        // --- PHASE 2: VOICE PROCESSING PIPELINE ---
-        console.log("[VOICE] Uploading audio...");
-        setResult("🎙️ Processing voice question...");
-
-        try {
-          const uploadResult = await uploadAsync(
-            `${API_BASE_URL}/voice/process`,
-            uri,
-            {
-              fieldName: "file",
-              httpMethod: "POST",
-              uploadType: FileSystemUploadType.MULTIPART,
-              headers: {
-                Accept: "application/json",
-              },
-            }
+      try {
+        data =
+          JSON.parse(
+            responseText
           );
-
-          console.log("[VOICE] Upload status:", uploadResult.status);
-          console.log("[VOICE] Upload response:", uploadResult.body);
-
-          if (uploadResult.status < 200 || uploadResult.status >= 300) {
-            let detailMsg = "";
-            try {
-              const errData = JSON.parse(uploadResult.body);
-              detailMsg = errData.detail || "";
-            } catch (e) {}
-
-            console.log("[VOICE] Upload error detail:", detailMsg);
-            setResult(`Voice error: ${detailMsg || "Could not process recording. Please try again."}`);
-            return;
-          }
-
-          const data = JSON.parse(uploadResult.body);
-          const transcript = data.transcript || "";
-          const answer = data.answer || "";
-
-          console.log("[VOICE] Transcription result:", transcript);
-          console.log("[VOICE] AI answer (first 100 chars):", answer.substring(0, 100));
-
-          if (transcript) {
-            setQuestion(transcript);
-          }
-
-          const fullText = `📝 You said:\n"${transcript}"\n\nAI:\n"${answer}"`;
-          setResult(fullText);
-
-          if (data.images && data.images.length > 0) {
-            setImageUri(`${API_BASE_URL}${data.images[data.images.length - 1]}?t=${Date.now()}`);
-          }
-
-          // Speak answer aloud
-          if (answer) {
-            try {
-              Speech.stop();
-              Speech.speak(answer, { language: "en" });
-            } catch (ttsErr) {
-              console.log("[VOICE] TTS Error:", ttsErr);
-            }
-          }
-        } catch (uploadErr) {
-          console.log("[VOICE] Upload error:", uploadErr);
-          setResult("Could not send voice recording to VisionAI. Check network connection.");
-        }
+      } catch {
+        throw new Error(
+          `Backend returned invalid JSON.\n\n${responseText}`
+        );
       }
+
+      console.log(
+        "[BACKEND] Parsed JSON:",
+        data
+      );
+
+      // ==================================================
+      // SHOW JSON
+      // ==================================================
+
+      setResult(
+        JSON.stringify(
+          data,
+          null,
+          2
+        )
+      );
+
+      console.log(
+        "================================"
+      );
+
+      console.log(
+        "[VISIONAI] ANALYSIS SUCCESSFUL"
+      );
+
+      console.log(
+        "================================"
+      );
     } catch (error) {
-      console.log("[VOICE] Unhandled error:", error);
-      setIsRecording(false);
-      setResult("Voice error: " + (error instanceof Error ? error.message : String(error)));
+      console.error(
+        "================================"
+      );
+
+      console.error(
+        "[VISIONAI] ERROR"
+      );
+
+      console.error(
+        error
+      );
+
+      console.error(
+        "================================"
+      );
+
+      const errorMessage =
+        error instanceof Error
+          ? error.message
+          : String(error);
+
+      setResult(
+        `CAPTURE / ANALYZE ERROR\n\n${errorMessage}\n\nCheck the browser console (F12) for details.`
+      );
+    } finally {
+      setLoading(false);
     }
   };
+
+  // ==================================================
+  // UI
+  // ==================================================
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>VisionAI</Text>
-      <Text style={styles.subtitle}>AI-Powered Assistive Visual Memory</Text>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={
+        styles.content
+      }
+    >
+      {/* HEADER */}
 
-      {/* Status Badge */}
-      <View style={[styles.statusBadge, isCapturing ? styles.statusOn : styles.statusOff]}>
-        <Text style={styles.statusText}>
-          Camera Status: {isCapturing ? "🟢 ON (Capturing every 1-2s)" : "🔴 OFF"}
+      <View style={styles.header}>
+        <Text style={styles.title}>
+          VisionAI
+        </Text>
+
+        <Text style={styles.subtitle}>
+          Camera → YOLO + OCR → FastAPI
         </Text>
       </View>
 
-      {/* Camera Toggle Button */}
-      <Pressable
-        style={[styles.button, isCapturing ? styles.buttonStop : styles.buttonStart]}
-        onPress={handleToggleCamera}
-        disabled={loading}
+      {/* CAMERA */}
+
+      <View
+        style={
+          styles.cameraContainer
+        }
       >
-        <Text style={styles.icon}>{isCapturing ? "🛑" : "📷"}</Text>
-        <Text style={styles.buttonTitle}>
-          {loading ? "Processing..." : isCapturing ? "Stop Camera" : "Start Camera"}
-        </Text>
-        <Text style={styles.buttonSubtitle}>
-          {isCapturing
-            ? "Stop continuous background capturing"
-            : "Start continuous background image capture on Raspberry Pi"}
-        </Text>
+        <CameraView
+          ref={cameraRef}
+          style={styles.camera}
+          facing="front"
+          mode="picture"
+          onCameraReady={() => {
+            console.log(
+              "[CAMERA] Camera is ready"
+            );
+
+            setCameraReady(true);
+
+            setResult(
+              "Camera ready.\n\nPlace an object or currency note in front of the camera and press Capture & Analyze."
+            );
+          }}
+          onMountError={(error) => {
+            console.error(
+              "[CAMERA] Mount error:",
+              error
+            );
+
+            setCameraReady(false);
+
+            setResult(
+              `CAMERA MOUNT ERROR\n\n${error.message}`
+            );
+          }}
+        />
+
+        <View
+          style={
+            styles.cameraStatus
+          }
+        >
+          <View
+            style={[
+              styles.statusDot,
+              {
+                backgroundColor:
+                  cameraReady
+                    ? "#22c55e"
+                    : "#f59e0b",
+              },
+            ]}
+          />
+
+          <Text
+            style={
+              styles.statusText
+            }
+          >
+            {cameraReady
+              ? "Camera Ready"
+              : "Starting Camera..."}
+          </Text>
+        </View>
+      </View>
+
+      {/* CAPTURE BUTTON */}
+
+      <Pressable
+        style={[
+          styles.primaryButton,
+          (!cameraReady ||
+            loading) &&
+            styles.disabledButton,
+        ]}
+        onPress={handleCapture}
+        disabled={
+          !cameraReady ||
+          loading
+        }
+      >
+        {loading ? (
+          <View
+            style={
+              styles.buttonRow
+            }
+          >
+            <ActivityIndicator
+              size="small"
+              color="#ffffff"
+            />
+
+            <Text
+              style={
+                styles.primaryButtonText
+              }
+            >
+              Processing...
+            </Text>
+          </View>
+        ) : (
+          <Text
+            style={
+              styles.primaryButtonText
+            }
+          >
+            Capture & Analyze
+          </Text>
+        )}
       </Pressable>
 
-      {/* Manual Instant Capture Button */}
-      <Pressable
-        style={[styles.button, styles.buttonSecondary]}
-        onPress={handleManualCapture}
-        disabled={loading}
-      >
-        <Text style={styles.buttonTitleSecondary}>📸 Take Single Photo</Text>
-      </Pressable>
+      {/* CAPTURED IMAGE */}
 
-      {/* Preview Box */}
       {imageUri && (
-        <View style={styles.imageBox}>
-          <Text style={styles.resultHeading}>Recent Camera View</Text>
+        <View
+          style={styles.section}
+        >
+          <Text
+            style={
+              styles.sectionTitle
+            }
+          >
+            Captured Image
+          </Text>
+
           <Image
-            source={{ uri: imageUri }}
-            style={styles.image}
+            source={{
+              uri: imageUri,
+            }}
+            style={
+              styles.previewImage
+            }
             resizeMode="contain"
           />
         </View>
       )}
 
-      {/* Question Section */}
-      <View style={styles.askContainer}>
-        <Text style={styles.resultHeading}>Ask VisionAI</Text>
-        <Text style={styles.askSubtext}>
-          Ask a question about your surroundings based on recent captured images.
+      {/* RESULT */}
+
+      <View
+        style={styles.section}
+      >
+        <Text
+          style={
+            styles.sectionTitle
+          }
+        >
+          VisionAI Backend Result
         </Text>
 
-        <TextInput
-          style={styles.textInput}
-          placeholder="e.g. What is in front of me?"
-          value={question}
-          onChangeText={setQuestion}
-          editable={!asking}
-        />
-
-        {/* Quick Suggestion Pills */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillContainer}>
-          {PRESET_QUESTIONS.map((item, index) => (
-            <Pressable
-              key={index}
-              style={styles.pill}
-              onPress={() => {
-                setQuestion(item);
-                handleAsk(item);
-              }}
+        <View
+          style={
+            styles.resultBox
+          }
+        >
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={
+              true
+            }
+          >
+            <Text
+              style={
+                styles.resultText
+              }
             >
-              <Text style={styles.pillText}>{item}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        <Pressable
-          style={[styles.askButton, asking && styles.buttonDisabled]}
-          onPress={() => handleAsk()}
-          disabled={asking}
-        >
-          {asking ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.askButtonText}>🔍 ASK GEMINI</Text>
-          )}
-        </Pressable>
+              {result}
+            </Text>
+          </ScrollView>
+        </View>
       </View>
 
-      {/* Secondary Features */}
-      <View style={styles.rowButtons}>
-        <Pressable style={[styles.buttonSmall]} onPress={handleDistance}>
-          <Text style={styles.iconSmall}>📏</Text>
-          <Text style={styles.buttonTitleSmall}>Distance</Text>
-        </Pressable>
+      {/* PIPELINE */}
 
-        <Pressable
-          style={[styles.buttonSmall, isRecording && styles.voiceRecording]}
-          onPress={handleVoice}
+      <View
+        style={
+          styles.architectureBox
+        }
+      >
+        <Text
+          style={
+            styles.architectureTitle
+          }
         >
-          <Text style={styles.iconSmall}>{isRecording ? "🛑" : "🎙️"}</Text>
-          <Text style={styles.buttonTitleSmall}>
-            {isRecording ? "Stop Recording" : "Voice"}
-          </Text>
-        </Pressable>
+          Current Pipeline
+        </Text>
+
+        <Text
+          style={
+            styles.architectureText
+          }
+        >
+          Laptop Camera
+          {"\n"}↓
+          {"\n"}VisionAI App
+          {"\n"}↓
+          {"\n"}POST /analyze
+          {"\n"}↓
+          {"\n"}YOLO + EasyOCR
+          {"\n"}↓
+          {"\n"}Currency Fusion
+          {"\n"}↓
+          {"\n"}JSON Result
+        </Text>
       </View>
 
-      {/* Result Output */}
-      <View style={styles.resultBox}>
-        <Text style={styles.resultHeading}>AI Description & Result</Text>
-        <Text style={styles.resultText}>{result}</Text>
+      {/* BACKEND */}
+
+      <View
+        style={
+          styles.backendBox
+        }
+      >
+        <Text
+          style={
+            styles.backendTitle
+          }
+        >
+          Backend
+        </Text>
+
+        <Text
+          style={
+            styles.backendText
+          }
+        >
+          {API_BASE_URL}
+        </Text>
+
+        <Text
+          style={
+            styles.backendEndpoint
+          }
+        >
+          POST /analyze
+        </Text>
       </View>
     </ScrollView>
   );
 }
 
+// ======================================================
+// STYLES
+// ======================================================
+
 const styles = StyleSheet.create({
   container: {
-    flexGrow: 1,
-    backgroundColor: "#f5f5f5",
+    flex: 1,
+    backgroundColor: "#f5f7fb",
+  },
+
+  content: {
     padding: 20,
+    paddingBottom: 50,
+  },
+
+  centerContainer: {
+    flex: 1,
+    minHeight: 600,
+    justifyContent: "center",
     alignItems: "center",
+    padding: 30,
+    backgroundColor: "#f5f7fb",
   },
-  title: {
-    fontSize: 36,
-    fontWeight: "bold",
-    marginTop: 20,
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 15,
-    textAlign: "center",
-    color: "#555",
+
+  header: {
     marginBottom: 20,
   },
-  statusBadge: {
-    width: "100%",
-    padding: 10,
-    borderRadius: 12,
-    alignItems: "center",
-    marginBottom: 15,
+
+  title: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: "#111827",
+    marginBottom: 5,
   },
-  statusOn: {
-    backgroundColor: "#e6f4ea",
+
+  subtitle: {
+    fontSize: 15,
+    color: "#6b7280",
   },
-  statusOff: {
-    backgroundColor: "#fce8e6",
-  },
-  statusText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-  },
-  button: {
-    width: "100%",
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 12,
-  },
-  buttonStart: {
-    backgroundColor: "#222",
-  },
-  buttonStop: {
-    backgroundColor: "#d93025",
-  },
-  buttonSecondary: {
-    backgroundColor: "#ffffff",
-    borderWidth: 1,
-    borderColor: "#ccc",
-    padding: 14,
-    alignItems: "center",
-  },
-  buttonTitleSecondary: {
+
+  infoText: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
+    color: "#4b5563",
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 20,
+    lineHeight: 24,
   },
-  icon: {
-    fontSize: 28,
-    marginBottom: 6,
-  },
-  buttonTitle: {
-    color: "white",
-    fontSize: 20,
-    fontWeight: "bold",
-  },
-  buttonSubtitle: {
-    color: "#e0e0e0",
-    fontSize: 13,
-    marginTop: 4,
-  },
-  imageBox: {
+
+  cameraContainer: {
     width: "100%",
-    backgroundColor: "white",
+    height: 420,
+    backgroundColor: "#111827",
     borderRadius: 18,
-    padding: 15,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
+    overflow: "hidden",
+    position: "relative",
   },
-  image: {
+
+  camera: {
     width: "100%",
-    height: 240,
-    borderRadius: 12,
+    height: "100%",
   },
-  askContainer: {
-    width: "100%",
-    backgroundColor: "white",
-    borderRadius: 18,
-    padding: 18,
-    marginBottom: 15,
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
-  },
-  askSubtext: {
-    fontSize: 13,
-    color: "#666",
-    marginBottom: 12,
-  },
-  textInput: {
-    width: "100%",
-    backgroundColor: "#f9f9f9",
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    marginBottom: 12,
-  },
-  pillContainer: {
+
+  cameraStatus: {
+    position: "absolute",
+    top: 14,
+    left: 14,
     flexDirection: "row",
-    marginBottom: 12,
-  },
-  pill: {
-    backgroundColor: "#e8f0fe",
+    alignItems: "center",
+    backgroundColor:
+      "rgba(0,0,0,0.70)",
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 16,
+    borderRadius: 20,
+  },
+
+  statusDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
     marginRight: 8,
   },
-  pillText: {
-    color: "#1a73e8",
+
+  statusText: {
+    color: "#ffffff",
     fontSize: 13,
-    fontWeight: "500",
+    fontWeight: "600",
   },
-  askButton: {
-    backgroundColor: "#1a73e8",
+
+  primaryButton: {
+    marginTop: 18,
+    backgroundColor: "#2563eb",
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     borderRadius: 12,
-    padding: 16,
     alignItems: "center",
+    justifyContent: "center",
   },
-  buttonDisabled: {
-    opacity: 0.6,
+
+  disabledButton: {
+    opacity: 0.5,
   },
-  askButtonText: {
-    color: "white",
-    fontSize: 16,
-    fontWeight: "bold",
+
+  primaryButtonText: {
+    color: "#ffffff",
+    fontSize: 17,
+    fontWeight: "700",
   },
-  rowButtons: {
+
+  buttonRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    width: "100%",
-    marginBottom: 15,
+    alignItems: "center",
+    gap: 10,
   },
-  buttonSmall: {
-    width: "48%",
+
+  section: {
+    marginTop: 24,
+  },
+
+  sectionTitle: {
+    fontSize: 19,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 10,
+  },
+
+  previewImage: {
+    width: "100%",
+    height: 300,
+    backgroundColor: "#111827",
+    borderRadius: 14,
+  },
+
+  resultBox: {
+    backgroundColor: "#111827",
+    borderRadius: 14,
+    padding: 16,
+    minHeight: 220,
+  },
+
+  resultText: {
+    color: "#e5e7eb",
+    fontSize: 13,
+    lineHeight: 20,
+    fontFamily: "monospace",
+  },
+
+  architectureBox: {
+    marginTop: 24,
     backgroundColor: "#ffffff",
     borderRadius: 14,
-    padding: 12,
-    alignItems: "center",
+    padding: 18,
     borderWidth: 1,
-    borderColor: "#ddd",
+    borderColor: "#e5e7eb",
   },
-  iconSmall: {
-    fontSize: 20,
+
+  architectureTitle: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 12,
+  },
+
+  architectureText: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: "#4b5563",
+    fontFamily: "monospace",
+  },
+
+  backendBox: {
+    marginTop: 24,
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+
+  backendTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 6,
+  },
+
+  backendText: {
+    fontSize: 13,
+    color: "#2563eb",
     marginBottom: 4,
   },
-  buttonTitleSmall: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-  },
-  resultBox: {
-    width: "100%",
-    backgroundColor: "white",
-    borderRadius: 18,
-    padding: 20,
-    marginBottom: 30,
-    borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  resultHeading: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 8,
-  },
-  resultText: {
-    fontSize: 15,
-    color: "#333",
-    lineHeight: 22,
-  },
-  voiceRecording: {
-    backgroundColor: "#ffe8e8",
-    borderColor: "#d93025",
+
+  backendEndpoint: {
+    fontSize: 13,
+    color: "#6b7280",
   },
 });
