@@ -8,6 +8,8 @@ from backend.ai.currency_detector import CurrencyDetector
 from backend.ai.currency_model import CurrencyModel
 from backend.ai.currency_fusion import CurrencyFusion
 
+from backend.routers.navigation import router as navigation_router
+
 import shutil
 import os
 import uuid
@@ -23,6 +25,8 @@ app = FastAPI(
     version="1.0.0"
 )
 
+app.include_router(navigation_router)
+
 
 # ==================================================
 # CORS
@@ -31,8 +35,8 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://127.0.0.1:5500",
-        "http://localhost:5500"
+        "http://localhost:8081",
+        "http://127.0.0.1:8081",
     ],
     allow_credentials=True,
     allow_methods=["*"],

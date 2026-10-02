@@ -11,8 +11,8 @@ class CurrencyModel:
 
         results = self.model(
             image_path,
-            conf=0.10,
-            iou=0.45,
+            conf=0.25,
+            iou=0.30,
             imgsz=960,
             verbose=False
         )
