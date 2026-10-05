@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+
+uploads/
+runs/
+
+.env
+*.env
+
+.ipynb_checkpoints/
+
+.DS_Store
+Thumbs.db
+training_data/
