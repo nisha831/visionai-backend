@@ -136,7 +136,7 @@ The Raspberry Pi must have the `Raspi-backend` folder.
 SSH into the Raspberry Pi:
 
 ```bash
-ssh kanchannish08@RasberryPi5.local
+ssh username@RasberryPi5.local
 ```
 
 Go to the backend:
@@ -202,7 +202,7 @@ Scan the QR code using Expo Go.
 ### Raspberry Pi
 
 ```bash
-ssh kanchannish08@RasberryPi5.local
+ssh username@RasberryPi5.local
 cd ~/Raspi-backend
 source venv/bin/activate
 python3 -m raspberry_pi.pi_main
