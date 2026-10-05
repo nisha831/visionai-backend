@@ -225,13 +225,12 @@ ipconfig getifaddr en0
 Example:
 
 ```text
-10.65.74.68
-```
+<YOUR_LOCAL_IP>```
 
 The backend can then be accessed using:
 
 ```text
-http://10.65.74.68:8000
+http://<YOUR_LOCAL_IP>:8000
 ```
 
 Test it from a phone browser:
