@@ -1,259 +1,433 @@
-# VisionAI — AI-Powered Image Analysis Backend
 
-VisionAI is a FastAPI-based computer vision backend that analyzes uploaded images using **YOLO object detection, Indian currency detection, and OCR**.
+# 1. README — How a new user runs the project
 
-The project is designed to identify objects, extract text, and detect Indian currency denominations from images.
+Your README should **not** use:
 
-## Features
-
-* ��� YOLO object detection
-* ��� Indian currency denomination detection
-* ��� OCR text extraction
-* ��� Combines OCR and YOLO results for currency identification
-* ⚡ FastAPI REST API
-* ��� JPG, JPEG, PNG, and WEBP image support
-* ��� Health-check endpoint
-* ��� Trained Indian currency YOLO model
-
-## Supported Indian Currency
-
-The currency detection system supports:
-
-* ₹5
-* ₹10
-* ₹20
-* ₹50
-* ₹100
-* ₹200
-* ₹500
-* ₹2000
-
-## Project Structure
-
-```text
-VisionAI/
-│
-├── backend/
-│   ├── ai/
-│   │   ├── currency_detector.py
-│   │   ├── currency_model.py
-│   │   ├── ocr_reader.py
-│   │   ├── yolo_detector.py
-│   │   └── __init__.py
-│   │
-│   ├── main.py
-│   └── test_yolo.py
-│
-├── images/
-│   ├── ocr_test.jpg
-│   └── test.jpg
-│
-├── docs/
-├── notes/
-├── tests/
-│
-├── indian_currency_pretrained.pt
-├── yolo11n.pt
-├── yolo11s.pt
-├── requirements.txt
-├── .gitignore
-└── README.md
+```bash
+cd ~/Desktop/hahaha/...
 ```
 
-## Requirements
+because that path exists only on your Mac.
 
-* Python 3.10+
-* FastAPI
-* Uvicorn
-* Ultralytics YOLO
-* PyTorch
-* OpenCV
-* OCR dependencies
+For a new user, use this:
 
-Install the required Python packages with:
+```markdown
+# 🚀 How to Run VisionAI
+
+## 1. Clone the Repository
+
+```bash
+git clone https://github.com/nisha831/visionai-backend.git
+cd visionai-backend
+```
+
+The repository contains:
+
+```text
+visionai-backend/
+├── VisionAI/
+├── Raspi-backend/
+├── visionai-backend/
+├── backend/
+├── docs/
+├── images/
+├── notes/
+└── tests/
+```
+
+---
+
+## 2. Start the FastAPI Backend
+
+Open Terminal 1.
+
+From the repository root:
+
+```bash
+cd visionai-backend
+```
+
+Create a Python virtual environment:
+
+```bash
+python3 -m venv venv
+```
+
+Activate it:
+
+### macOS / Linux
+
+```bash
+source venv/bin/activate
+```
+
+### Windows
+
+```bash
+venv\Scripts\activate
+```
+
+Install dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Running the Backend
-
-Activate the virtual environment:
-
-### Windows / Git Bash
+Start the FastAPI server:
 
 ```bash
-source venv/Scripts/activate
+python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
 
-Then start the FastAPI server:
-
-```bash
-python -m uvicorn backend.main:app
-```
-
-The API will be available at:
+The backend will be available at:
 
 ```text
-http://127.0.0.1:8000
+http://localhost:8000
 ```
 
-## Health Check
-
-Open:
+FastAPI documentation:
 
 ```text
-http://127.0.0.1:8000/health
+http://localhost:8000/docs
 ```
 
-Or use:
+---
+
+## 3. Run the VisionAI Mobile Application
+
+Open Terminal 2.
+
+From the repository root:
 
 ```bash
-curl http://127.0.0.1:8000/health
+cd VisionAI
 ```
 
-A successful response looks like:
-
-```json
-{
-  "status": "healthy",
-  "yolo": "loaded",
-  "ocr": "loaded",
-  "currency_detector": "loaded",
-  "currency_model": "loaded"
-}
-```
-
-## Analyze an Image
-
-Send an image to the `/analyze` endpoint:
+Install Node dependencies:
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/analyze" \
-  -F "file=@uploads/500.jpeg"
+npm install
 ```
 
-The API returns:
+Start Expo:
 
-* image dimensions
-* detected objects
-* extracted OCR text
-* currency detections
-* final currency prediction
+```bash
+npx expo start
+```
+
+For a clean start:
+
+```bash
+npx expo start -c
+```
+
+A QR code will appear.
+
+Install **Expo Go** on your Android/iOS phone and scan the QR code.
+
+Make sure the phone and computer are connected to the same network.
+
+---
+
+## 4. Run the Raspberry Pi Backend
+
+The Raspberry Pi must have the `Raspi-backend` folder.
+
+SSH into the Raspberry Pi:
+
+```bash
+ssh kanchannish08@RasberryPi5.local
+```
+
+Go to the backend:
+
+```bash
+cd ~/Raspi-backend
+```
+
+Create the virtual environment if required:
+
+```bash
+python3 -m venv --system-site-packages venv
+```
+
+Activate it:
+
+```bash
+source venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Start the Raspberry Pi controller:
+
+```bash
+python3 -m raspberry_pi.pi_main
+```
+
+The Raspberry Pi controller handles:
+
+- Raspberry Pi camera
+- Physical button
+- HC-SR04 distance sensor
+- Communication with the FastAPI backend
+
+---
+
+# 🔄 Complete Startup
+
+Run the following three components.
+
+### Terminal 1 — FastAPI
+
+```bash
+cd visionai-backend
+source venv/bin/activate
+python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
+```
+
+### Terminal 2 — Mobile App
+
+```bash
+cd VisionAI
+npx expo start -c
+```
+
+Scan the QR code using Expo Go.
+
+### Raspberry Pi
+
+```bash
+ssh kanchannish08@RasberryPi5.local
+cd ~/Raspi-backend
+source venv/bin/activate
+python3 -m raspberry_pi.pi_main
+```
+
+---
+
+# 🌐 Network Configuration
+
+For mobile and Raspberry Pi communication, the devices must be able to reach the computer running FastAPI.
+
+Find your computer's local IP address.
+
+### macOS
+
+```bash
+ipconfig getifaddr en0
+```
 
 Example:
 
-```json
-{
-  "message": "Image analyzed successfully!",
-  "filename": "500.jpeg",
-  "final_currency": {
-    "name": "500",
-    "confidence": 0.20,
-    "source": "yolo"
-  }
-}
+```text
+10.65.74.68
 ```
 
-## Currency Detection
-
-VisionAI uses two signals:
-
-### YOLO
-
-The trained Indian currency model detects denominations and provides:
-
-* denomination
-* confidence
-* bounding box
-
-Example:
-
-```json
-{
-  "name": "500",
-  "confidence": 0.20,
-  "box": {
-    "x1": 299,
-    "y1": 8,
-    "x2": 1347,
-    "y2": 1038
-  }
-}
-```
-
-### OCR
-
-OCR extracts visible text from the currency note.
-
-For example:
+The backend can then be accessed using:
 
 ```text
-RESERVE BANK OF INDIA
-MAHATMA GANDHI
-500
+http://10.65.74.68:8000
 ```
 
-The backend combines OCR and YOLO information to determine the final denomination.
-
-## API Endpoints
-
-| Method | Endpoint   | Description               |
-| ------ | ---------- | ------------------------- |
-| GET    | `/`        | Backend information       |
-| GET    | `/health`  | Check AI model status     |
-| POST   | `/analyze` | Analyze an uploaded image |
-
-## API Documentation
-
-FastAPI automatically provides interactive API documentation.
-
-After starting the backend, open:
+Test it from a phone browser:
 
 ```text
-http://127.0.0.1:8000/docs
+http://YOUR-COMPUTER-IP:8000
 ```
 
-This allows you to test `/analyze` directly from the browser.
-
-## Models
-
-The repository contains:
+FastAPI documentation:
 
 ```text
-indian_currency_pretrained.pt
-yolo11n.pt
-yolo11s.pt
+http://YOUR-COMPUTER-IP:8000/docs
 ```
 
-`indian_currency_pretrained.pt` is the trained Indian currency detection model used by the backend.
+> Replace `YOUR-COMPUTER-IP` with the current IP address of the computer running the backend.
 
-## Important Notes
+---
 
-The project is currently focused on the **backend/API**. There is no frontend application included.
+# 📷 Raspberry Pi Camera Test
 
-The backend currently runs on CPU on systems without a compatible NVIDIA GPU.
-
-## Development
-
-Run the server normally:
+On the Raspberry Pi:
 
 ```bash
-python -m uvicorn backend.main:app
+rpicam-hello
 ```
 
-For development with automatic reload:
+Capture a test image:
 
 ```bash
-python -m uvicorn backend.main:app --reload
+rpicam-still -o test.jpg
 ```
 
-## Repository
+Or:
 
-GitHub:
+```bash
+rpicam-still --nopreview -o test.jpg --width 640 --height 480
+```
 
-https://github.com/nisha831/visionai-backend
+---
 
-## License
+# 🧪 Hardware Tests
 
-This project is intended for educational and development purposes.
+### Test Camera
+
+```bash
+python3 test_camera.py
+```
+
+### Test Distance Sensor
+
+```bash
+python3 test_sensor.py
+```
+
+### Test Button
+
+```bash
+python3 test_button.py
+```
+
+---
+
+# 🛑 Stop the Services
+
+Press:
+
+```text
+Ctrl + C
+```
+
+in the terminal running the respective service.
+```
+
+### One important thing
+
+Your screenshot shows both:
+
+```text
+Raspi-backend/
+VisionAI/
+visionai-backend/
+```
+
+and also:
+
+```text
+backend/
+images/
+docs/
+notes/
+tests/
+```
+
+at the repository root.
+
+So **before publishing the README, I would keep the commands based on the actual root structure shown in your GitHub**, rather than assuming `visionai-backend` is the only backend directory.
+
+---
+
+# 2. Why only `nisha831` appears as Contributor?
+
+This is the important part.
+
+Your screenshot shows:
+
+> **Contributors 1 — nisha831**
+
+even though your commit was:
+
+> `Update VisionAI, Raspberry Pi and backend`
+
+That does **not necessarily mean your commit wasn't pushed**.
+
+GitHub determines contributors based largely on the **author email attached to Git commits**.
+
+Your local Git may currently be configured with an email that GitHub doesn't associate with your account.
+
+### Check your commit identity
+
+Run:
+
+```bash
+cd ~/Desktop/hahaha
+git log -1 --format='%an <%ae>'
+```
+
+You'll get something like:
+
+```text
+kanchannishad <something@gmail.com>
+```
+
+Then check:
+
+```bash
+git config user.name
+git config user.email
+```
+
+### If the email isn't connected to your GitHub account
+
+Go to:
+
+**GitHub → Profile → Settings → Emails**
+
+and check whether the email shown by:
+
+```bash
+git config user.email
+```
+
+is added and verified on **your GitHub account**.
+
+If it isn't, add and verify it.
+
+---
+
+## Better option for future commits
+
+You can configure Git to use your GitHub email:
+
+```bash
+git config --global user.name "Kanchan Nishad"
+```
+
+Then:
+
+```bash
+git config --global user.email "YOUR_GITHUB_EMAIL"
+```
+
+Check:
+
+```bash
+git config --global --list
+```
+
+### If you use GitHub's private noreply email
+
+You can also use your GitHub-provided:
+
+```text
+xxxx+username@users.noreply.github.com
+```
+
+instead of your personal email.
+
+---
+
+### What about the commit you already made?
+
+Don't make another commit yet.
+
+First run:
+
+```bash
+git log --format='%h %an <%ae> %s' -5
+```
+
